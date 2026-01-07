@@ -1,5 +1,5 @@
 ---
-title: "bureau-de-voteq"
+title: "Sources et méthodes pour la carte des bureaux de vote à Marseille"
 author: "valentin"
 date: "2025-12-08"
 output: html_document
@@ -34,19 +34,25 @@ library(RColorBrewer)
 
 Objectif : Connaître le taux d'abstention par aire géographique des bureaux de vote (BV) à Marseille. 
 
-Plan d'action : 
+Sources : 
 
-- Importer les données des résultats par BV (au premier tour des élections municipales de 2020) issues de : https://www.data.gouv.fr/datasets/municipales-2020-resultats-2nd-tour/
+- Résultats par bureau de vote (BV) au premier tour des élections municipales de 2020 : https://www.data.gouv.fr/datasets/municipales-2020-resultats-2nd-tour/
 
-- Importer les données des résultats par BV (au premier tour des élections régionales de 2021) issues de : https://www.data.gouv.fr/datasets/elections-regionales-2021-resultats-du-1er-tour-1/
+- Résultats par BV au premier tour des élections régionales de 2021 : https://www.data.gouv.fr/datasets/elections-regionales-2021-resultats-du-1er-tour-1/
 
-- Importer les données des aires géographiques par BV issues de : https://www.data.gouv.fr/datasets/proposition-de-contours-des-bureaux-de-vote/
+- Aires géographiques estimées des BV : https://www.data.gouv.fr/datasets/proposition-de-contours-des-bureaux-de-vote/
 
-- Restreindre les données aux BV de Marseille 
+```{r, include = FALSE}
+# Plan d'action 
 
-- Agréger les voix par bord politique et identifier les meilleurs listes et leurs scores
+# Restreindre les données aux BV de Marseille 
 
-- Joindre les données par un identifiant BV, en s'assurant qu'il est cohérent entre les deux bases. 
+# Agréger les voix par bord politique et identifier les meilleurs listes et leurs scores
+
+# Joindre les données par un identifiant BV, en s'assurant qu'il est cohérent entre les deux bases. 
+
+```
+
 
 
 ```{r, include = FALSE}
