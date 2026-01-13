@@ -420,6 +420,12 @@ fin =
 fin$label_html <- 
   # HTML( # Using HTML is necessary to read html terms like <br/>, but it un-vectorizes the column and thus prints all values of the column in each tooltip (hover box). Hopefully, for some reason, using html terms in popup and not in label (in addPolygons) works well without having to convert with HTML...  
   paste0(
+    "<div style='
+      font-size:16px;
+      line-height:1.4;
+      padding:3px 8px;
+      max-width:500px;
+  '>",
   "<strong>Abstention </strong>","<br/>",
   "T1 municipales 2020: ", fin$fmt_pct_Abs_in_Ins, "<br/>",
   "T1 regionales 2021: ", fin$fmt_pct_Abs_in_Ins_regt1_2021, "<br/>",
@@ -465,7 +471,8 @@ m <- leaflet(fin) %>%
     popup = ~fin$label_html,
     popupOptions = popupOptions(
       style = list("font-weight" = "normal", padding = "3px 8px"),
-      textsize = "13px",
+      # textsize = "18px",
+      # maxwidth = 600,
       direction = "auto"
     )
   ) %>%
@@ -486,8 +493,9 @@ m_titled <- htmlwidgets::prependContent(
   htmltools::tags$h3("Abstention et résultats au premier tour des élections municipales de 2020, par bureau de vote")
 )
 
-# 6. Save it as an interactive HTML file
-saveWidget(m_titled, file = here("map_abstention_scores_bv_marseille.html"), selfcontained = TRUE)
+# 6. Save it as an interactive HTML file. Has to be named "index" for web publication on github. 
+saveWidget(m_titled, file = here("index.html"), selfcontained = TRUE)
+
 
 ```
 
