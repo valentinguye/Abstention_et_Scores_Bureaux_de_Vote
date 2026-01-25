@@ -395,6 +395,8 @@ On a utilisé la "Table de correspondance expérimentale et ponctuelle des réf�
 de vote" proposée par l'Insee et l'Etalab et la documentation associée (dictionnaire-donnees-bv.pdf et methodology.pdf Annexe B. à ce lien : https://www.data.gouv.fr/datasets/bureaux-de-vote-et-adresses-de-leurs-electeurs/) afin vérifier la crédibilité de la correspondance entre les identifiants dans les deux bases à apairer. 
 
 
+
+
 # Carte de l'abstention et résultats au premier tour des élections municipales de 2020, par bureau de vote
 ```{r}
 field_name = "pct_Abs_in_Ins_avgt1Mun20Reg21"
@@ -421,10 +423,10 @@ fin$label_html <-
   # HTML( # Using HTML is necessary to read html terms like <br/>, but it un-vectorizes the column and thus prints all values of the column in each tooltip (hover box). Hopefully, for some reason, using html terms in popup and not in label (in addPolygons) works well without having to convert with HTML...  
   paste0(
     "<div style='
-      font-size:16px;
-      line-height:1.4;
+      font-size:20px;
+      line-height:1.5;
       padding:3px 8px;
-      max-width:500px;
+      max-width:700px;
   '>",
   "<strong>Abstention </strong>","<br/>",
   "T1 municipales 2020: ", fin$fmt_pct_Abs_in_Ins, "<br/>",
@@ -447,6 +449,32 @@ fin$label_html <-
 )
 
 # fin$label_html %>% head()
+
+
+# Add markers for a selection of BV
+top30 = 
+  fin %>% 
+  arrange(
+    desc(pct_Abs_in_Ins_avgt1Mun20Reg21), desc(total_gauche)
+  ) %>% 
+  head(30) %>% 
+  st_point_on_surface() 
+
+top30$lon <- st_coordinates(top30)[, 1]
+top30$lat <- st_coordinates(top30)[, 2]
+
+left30 = 
+  fin %>%
+  filter(total_gauche > total_droite) %>% 
+  arrange(
+    desc(pct_Abs_in_Ins_avgt1Mun20Reg21), desc(total_gauche)
+  ) %>% 
+  head(30) %>% 
+  st_point_on_surface() 
+
+left30$lon <- st_coordinates(left30)[, 1]
+left30$lat <- st_coordinates(left30)[, 2]
+
 
 
 # 3. Create a color palette based on that field
@@ -476,6 +504,30 @@ m <- leaflet(fin) %>%
       direction = "auto"
     )
   ) %>%
+ addAwesomeMarkers(
+    data = top30,
+    lng = ~lon,
+    lat = ~lat,popup = ~label_html,
+    icon = awesomeIcons(
+      icon = "map-marker",
+      markerColor = "purple",
+      iconColor = "white",
+      library = "fa"
+    ),
+    label = ~"Top 30 abst."
+  ) %>%
+ addAwesomeMarkers(
+    data = left30,
+    lng = ~lon,
+    lat = ~lat,popup = ~label_html,
+    icon = awesomeIcons(
+      icon = "map-marker",
+      markerColor = "darkred",
+      iconColor = "white",
+      library = "fa"
+    ),
+    label = ~"Gauche > Droite"
+  ) %>% 
   addLegend(
     pal = pal,
     values = ~get(field_name),
@@ -495,7 +547,6 @@ m_titled <- htmlwidgets::prependContent(
 
 # 6. Save it as an interactive HTML file. Has to be named "index" for web publication on github. 
 saveWidget(m_titled, file = here("index.html"), selfcontained = TRUE)
-
 
 ```
 
