@@ -462,6 +462,13 @@ top30 =
 
 top30$lon <- st_coordinates(top30)[, 1]
 top30$lat <- st_coordinates(top30)[, 2]
+top30_icon = 
+  awesomeIcons(
+      icon = "map-marker",
+      markerColor = "purple",
+      iconColor = "white",
+      library = "fa"
+    )
 
 left30 = 
   fin %>%
@@ -472,8 +479,15 @@ left30 =
   head(30) %>% 
   st_point_on_surface() 
 
-left30$lon <- st_coordinates(left30)[, 1]
-left30$lat <- st_coordinates(left30)[, 2]
+left30$lon <- st_coordinates(left30)[, 1] - 0.00025
+left30$lat <- st_coordinates(left30)[, 2] - 0.00025
+left30_icon = 
+  awesomeIcons(
+      icon = "map-marker",
+      markerColor = "darkred",
+      iconColor = "white",
+      library = "fa"
+    )
 
 
 
@@ -508,34 +522,46 @@ m <- leaflet(fin) %>%
     data = top30,
     lng = ~lon,
     lat = ~lat,popup = ~label_html,
-    icon = awesomeIcons(
-      icon = "map-marker",
-      markerColor = "purple",
-      iconColor = "white",
-      library = "fa"
-    ),
+    icon = top30_icon,
     label = ~"Top 30 abst."
   ) %>%
  addAwesomeMarkers(
     data = left30,
     lng = ~lon,
     lat = ~lat,popup = ~label_html,
-    icon = awesomeIcons(
-      icon = "map-marker",
-      markerColor = "darkred",
-      iconColor = "white",
-      library = "fa"
-    ),
-    label = ~"Gauche > Droite"
+    icon = left30_icon,
+    label = ~"Top 30 abst. & Gauche > Droite"
   ) %>% 
   addLegend(
     pal = pal,
     values = ~get(field_name),
     opacity = 0.7,
     title = "% d'abstention :",
-    position = "bottomright"
+    position = "bottomleft"
+  ) %>%
+  addControl(
+    html = htmltools::HTML(
+    "<div style='
+     background: transparent;
+     padding: 8px 12px;
+     border-radius: 6px;
+  
+     font-size: 14px;
+'>
+  <div style='display: flex; align-items: center; gap: 8px;'>
+    <i class='fa fa-map-marker' style='color:purple'></i> 
+    <span> Top 30 abst.<span>
+     </div>
+     
+     <div style='display: flex; align-items: center; gap: 8px;'>
+     <i class='fa fa-map-marker' style='color:darkred'></i> 
+     <span> Top 30 abst. & Gauche > Droite<span> 
+    </div>
+  </div>
+</div>"),
+    position = "bottomleft"
   )
-
+#    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
 # 5. Display the map in RStudio viewer
 m
 
