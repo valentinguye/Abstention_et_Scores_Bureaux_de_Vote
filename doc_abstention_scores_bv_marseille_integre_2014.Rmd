@@ -533,12 +533,8 @@ de vote" proposée par l'Insee et l'Etalab et la documentation associée (dictio
 
 # Carte de l'abstention et résultats au premier tour des élections municipales de 2020, par bureau de vote
 ```{r}
-# Variable à cartographier : abstention au T1 des municipales 2020 (scrutin de référence)
-field_name = abs_ref
-# adresse_field <- "adresseBV"
-
 # ------------------------------------------------------------------------------
-# Préparation du html à renvoyer au clique sur la carte
+# Préparation du Label html à renvoyer au clique sur la carte
 # ------------------------------------------------------------------------------
 fn_format = function(var){ifelse(
               is.na(var),
@@ -558,7 +554,7 @@ fmt_evol = function(actuel, ref) {
   fleche = case_when(delta > 0 ~ "▲", delta < 0 ~ "▼", TRUE ~ "=")
   ifelse(is.na(delta),
          "(pas de résultat en 2014)",
-         paste0("(", fleche, " ", formatC(abs(delta), format = "f", digits = 1), " pt vs. 2014)"))
+         paste0("(", fleche, " ", formatC(abs(delta), format = "f", digits = 1), " pt p/r 2014)"))
 }
 
 fin$label_html <- 
@@ -576,7 +572,7 @@ fin$label_html <-
   fmt_evol(fin[[paste0("pct_Abs_in_Ins_", elec_mun)]], 
            fin[[paste0("pct_Abs_in_Ins_", elec_compar)]]), "<br/><br/>",
   
-  "<strong>Répartition des voix exprimées et podium des candidats au T1 de la présidentielle 2022 :</strong><br/>",
+  "<strong>Répartition des voix exprimées et top 3 candidats à la présidentielle 2022 :</strong><br/>",
   "Gauche : ",             fn_format(fin[[paste0("total_gauche_", elec_pres)]]),
   "   Centre & divers : ", fn_format(fin[[paste0("total_centre_", elec_pres)]]),
   "   Droite : ",          fn_format(fin[[paste0("total_droite_", elec_pres)]]), "<br/>",
@@ -586,79 +582,178 @@ fin$label_html <-
   )
 
 
-# 3. Create a color palette based on that field
-# pal <- colorNumeric(palette = "YlOrRd", domain = fin[[field_name]], na.color = "transparent")
-# 3. Quintile categories of abstention (computed on the mapped BV)
-vals    = fin[[field_name]]
-breaks  = quantile(vals, probs = seq(0, 1, 0.2), na.rm = TRUE) %>% unique()  # 6 cut points
-n_class = length(breaks) - 1
-labs = paste0("Q", seq_len(n_class), " (",
-              formatC(head(breaks, -1), format = "f", digits = 1), " – ",
-              formatC(tail(breaks, -1), format = "f", digits = 1), " %)")
+# ------------------------------------------------------------------------------
+# Trois couches commutables : variable, catégories et palette de chacune
+# ------------------------------------------------------------------------------
 
-fin$abs_quintile = cut(vals, breaks = breaks, labels = labs, include.lowest = TRUE)
-
-# Palette: Esox lucius has exactly 5 colours (light grey -> dark brown), one per quintile
+# Palette colRoz (5 couleurs), triée clair -> foncé quel que soit l'ordre renvoyé par le paquet
 pal_cols = substr(as.character(paletteer_d("colRoz::v_acanthurus")), 1, 7)   # retire un éventuel canal alpha
-# Garantit l'ordre clair -> foncé (Q1 le plus clair, Q5 le plus foncé), quel que soit l'ordre renvoyé par le paquet
 lum      = colSums(col2rgb(pal_cols) * c(0.299, 0.587, 0.114))
 pal_cols = pal_cols[order(lum, decreasing = TRUE)]
-pal = colorFactor(
-  palette  = pal_cols[seq_len(n_class)],
-  domain   = fin$abs_quintile,
-  na.color = "transparent"
-)
 
-# Nice palettes: 
+# Nice sequential palettes: 
 # colRoz::v_acanthurus
 # MexBrewer::Naturaleza
 # calecopal::desert - trop militaire
 
-# 4. Build the leaflet map using the precomputed label column
-m <- leaflet(fin) %>%
-  addProviderTiles(providers$CartoDB.Positron) %>%
-  addPolygons(
-    # fillColor = ~pal(get(field_name)), # get() here is fine because field_name is a single string
-    fillColor = ~pal(abs_quintile), 
-    weight = 1,
-    opacity = 1,
-    color = "white",
-    dashArray = "3",
-    fillOpacity = 0.7,   # increased transparency
-    highlightOptions = highlightOptions(
-      weight = 2,
-      color = "#666",
-      fillOpacity = 0.6,
-      bringToFront = TRUE
-    ),
-    popup = ~fin$label_html,
-    popupOptions = popupOptions(
-      style = list("font-weight" = "normal", padding = "3px 8px"),
-      # textsize = "18px",
-      # maxwidth = 600,
-      direction = "auto"
+# Quintiles d'une variable (calculés sur les BV cartographiés) + palette associée
+make_quintiles = function(vals) {
+  breaks  = quantile(vals, probs = seq(0, 1, 0.2), na.rm = TRUE) %>% unique()  # 6 cut points
+  n_class = length(breaks) - 1
+  labs = paste0("Q", seq_len(n_class), " (",
+                formatC(head(breaks, -1), format = "f", digits = 1), " – ",
+                formatC(tail(breaks, -1), format = "f", digits = 1), " %)")
+  f = cut(vals, breaks = breaks, labels = labs, include.lowest = TRUE)
+  list(f = f,
+       pal = colorFactor(palette = pal_cols[seq_len(n_class)], domain = f, na.color = "transparent"))
+}
+
+# Couche 1 : abstention au T1 des municipales 20206
+q1  = make_quintiles(fin[["pct_Abs_in_Ins_mun1_2026"]])
+# Couche 2 : abstention au T1 de la présidentielle 2022 (quintiles propres à ce scrutin)
+q2 = make_quintiles(fin[["pct_Abs_in_Ins_pres1_2022"]])
+
+# Couche 3 : évolution de l'abstention, T1 municipales 2014 -> 2026, en points de pourcentage.
+# La variable est signée (baisse / hausse) : on utilise des classes fixes centrées sur 0 
+# et une palette divergente (violet = baisse, orange = hausse, blanc = stable), plutôt 
+# que des quintiles dont les bornes ne tomberaient pas sur 0.
+fin$delta_abs = fin[[paste0("pct_Abs_in_Ins_", elec_mun)]] - fin[[paste0("pct_Abs_in_Ins_", elec_compar)]]
+lab_delta = c("baisse de plus de 10 pt", "baisse de 5 à 10 pt", "baisse de 2 à 5 pt", "stable (± 2 pt)",
+              "hausse de 2 à 5 pt", "hausse de 5 à 10 pt", "hausse de plus de 10 pt")
+delta_cat = cut(fin$delta_abs, breaks = c(-Inf, -10, -5, -2, 2, 5, 10, Inf), 
+                labels = lab_delta, include.lowest = TRUE)
+pal_delta = colorFactor(palette = rev(RColorBrewer::brewer.pal(7, "RdYlBu")), 
+                        domain = delta_cat, na.color = "transparent")
+
+# Couche 4 : rythme de la baisse de l'abstention, T1 municipales 2020 -> 2026, relatif à la 
+# baisse moyenne. L'abstention baisse dans tous les BV : on ne représente donc pas la baisse 
+# elle-même, mais son rapport à la baisse moyenne (ratio = baisse du BV / baisse moyenne des BV).
+#   ratio = 1 : même rythme que la moyenne ; 2 : baisse 2 fois plus rapide ; 0.5 : 2 fois plus lente.
+# Moyenne simple sur les BV cartographiés (non pondérée par le nombre d'inscrits). 
+# Classes symétriques sur une échelle multiplicative (0.5 <-> 2, 0.75 <-> 1.33, 0.9 <-> 1.1),
+# palette divergente différente de la couche 3 (rose = plus lente, vert = plus rapide).
+fin$baisse_2020_2026 = fin[["pct_Abs_in_Ins_mun1_2020"]] - fin[["pct_Abs_in_Ins_mun1_2026"]]
+if (any(fin$baisse_2020_2026 <= 0, na.rm = TRUE)) 
+  warning("Des BV n'ont pas de baisse d'abstention entre 2020 et 2026 : le ratio n'a plus le même sens pour eux.")
+baisse_moy = mean(fin$baisse_2020_2026, na.rm = TRUE)
+fin$ratio_baisse = fin$baisse_2020_2026 / baisse_moy
+fin$ratio_baisse |> quantile(seq(0,1,0.2))
+lab_ratio = c("baisse 2 fois plus lente que la moyenne, ou plus", "baisse 1,5 à 2 fois plus lente", 
+              "baisse 1,1 à 1,5 fois plus lente", "baisse proche de la moyenne (± 10 %)",
+              "baisse 1,1 à 1,5 fois plus rapide", "baisse 1,5 à 2 fois plus rapide",
+              "baisse 2 fois plus rapide que la moyenne, ou plus")
+ratio_cat = cut(fin$ratio_baisse, breaks = c(-Inf, 0.5, 0.67, 0.9, 1.1, 1.5, 2, Inf), 
+                labels = lab_ratio, include.lowest = TRUE)
+pal_ratio = colorFactor(palette = RColorBrewer::brewer.pal(7, "PiYG"), 
+                        domain = ratio_cat, na.color = "transparent")
+
+# Noms des couches (= libellés des boutons)
+grp1  = lib("mun1_2026")
+grp2  = lib("pres1_2022")
+grp_delta = "Évolution 2014 → 2026"
+grp_ratio = "Évolution 2020 → 2026" # relative à la baisse moyenne
+
+# ------------------------------------------------------------------------------
+# Carte leaflet : une couche de polygones par variable, commutées par addLayersControl()
+# ------------------------------------------------------------------------------
+# Les trois couches ont la même géométrie et le même popup, seules les couleurs changent.
+add_couche = function(map, couleurs, groupe) {
+  map %>% 
+    addPolygons(
+      fillColor = couleurs,
+      weight = 1,
+      opacity = 1,
+      color = "white",
+      dashArray = "3",
+      fillOpacity = 0.7,
+      highlightOptions = highlightOptions(
+        weight = 2,
+        color = "#666",
+        fillOpacity = 0.6,
+        bringToFront = TRUE
+      ),
+      popup = ~label_html,
+      popupOptions = popupOptions(
+        style = list("font-weight" = "normal", padding = "3px 8px"),
+        direction = "auto"
+      ),
+      group = groupe
     )
+}
+
+m <- leaflet(fin) %>%
+  # addProviderTiles(providers$OpenStreetMap) %>%  # plain OSM tiles, no key needed
+   addProviderTiles(providers$Esri.WorldGrayCanvas) %>%
+  # Esri WorldGrayCanvas
+  add_couche(q1$pal(q1$f),  grp1) %>%
+  add_couche(q2$pal(q2$f),  grp2) %>%
+  add_couche(pal_delta(delta_cat),  grp_delta) %>%
+  add_couche(pal_ratio(ratio_cat),  grp_ratio) %>%
+  # Une légende par couche ; la classe CSS "leg-*" sert à les afficher/masquer (cf. onRender ci-dessous)
+  addLegend(
+    pal = q1$pal, values = q1$f, opacity = 0.7, position = "bottomleft",
+    title = paste0("Abstention, ", grp1, "<br/>(quintiles de bureaux de vote)"),
+    className = "info legend leg-ref"
   ) %>%
   addLegend(
-    pal = pal,
-    values = ~abs_quintile,
-    # values = ~get(field_name),
-    opacity = 0.7,
-    title = "Abstention, T1 municipales 2020<br/>(quintiles de BV)", #  "% d'abstention :",
+    pal = q2$pal, values = q2$f, opacity = 0.7, position = "bottomleft",
+    title = paste0("Abstention, ", grp2, "<br/>(quintiles de bureaux de vote)"),
+    className = "info legend leg-pres"
+  ) %>%
+  addLegend(
+    pal = pal_delta, values = delta_cat, opacity = 0.7, position = "bottomleft",
+    title = "Évolution de l'abstention<br/>T1 municipales 2014 → 2026",
+    na.label = "pas de résultat en 2014",
+    className = "info legend leg-delta"
+  ) %>%
+   addLegend(
+    pal = pal_ratio, values = ratio_cat, opacity = 0.7, position = "bottomleft",
+    title = paste0("Baisse de l'abstention, T1 municipales 2020 → 2026<br/>",
+                   "relative à la baisse moyenne (", formatC(baisse_moy, format = "f", digits = 1), " pt)"),
+    className = "info legend leg-ratio"
+  ) %>%
+  # Boutons radio : une seule couche affichée à la fois (la première est affichée au départ)
+  addLayersControl(
+    baseGroups = c(grp1, grp2, grp_delta, grp_ratio),
+    options = layersControlOptions(collapsed = FALSE),
     position = "bottomleft"
-  )
+  ) %>%
+  hideGroup(c(grp2, grp_delta, grp_ratio))
 
-# 5. Display the map in RStudio viewer
+# Les légendes ne suivent pas automatiquement les couches : ce petit script JavaScript 
+# (exécuté dans le navigateur, sans serveur) n'affiche que la légende de la couche active.
+legendes = c(setNames("leg-ref", grp1), setNames("leg-pres", grp2), 
+             setNames("leg-delta", grp_delta), setNames("leg-ratio", grp_ratio))
+
+js_legendes = sprintf("
+function(el, x) {
+  var map = this;
+  var legendes = %s;
+  function afficher(nom) {
+    Object.keys(legendes).forEach(function(groupe) {
+      el.querySelectorAll('.' + legendes[groupe]).forEach(function(div) {
+        div.style.display = (groupe === nom) ? '' : 'none';
+      });
+    });
+  }
+  afficher(%s);
+  map.on('baselayerchange', function(e) { afficher(e.name); });
+}",
+                      jsonlite::toJSON(as.list(legendes), auto_unbox = TRUE),
+                      jsonlite::toJSON(grp1, auto_unbox = TRUE)
+)
+
+
+m <- m %>% htmlwidgets::onRender(js_legendes)
 m
 
 # add title
 m_titled <- htmlwidgets::prependContent(
   m,
-  htmltools::tags$h3("Abstention et résultats électoraux par bureau de vote")
+  htmltools::tags$h3("Abstention par bureau de vote à Marseille, et résultats en cliquant")
 )
 
-# 6. Save it as an interactive HTML file. Has to be named "index" for web publication on github. 
+# Save it as an interactive HTML file. Has to be named "index" for web publication on github. 
 saveWidget(m_titled, file = here("index.html"), selfcontained = TRUE)
-
 ```
 
