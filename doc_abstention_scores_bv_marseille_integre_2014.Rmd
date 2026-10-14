@@ -1,0 +1,664 @@
+---
+title: "Sources et méthodes pour la carte des bureaux de vote à Marseille"
+author: "valentin"
+date: "2026-10-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+library(here)
+library(tidyverse)
+library(sf)
+library(readxl)
+library(xlsx)
+library(jsonlite)
+library(stringr)
+# library(stringi)
+library(DescTools)
+library(rnaturalearth)
+library(ggpubr)
+library(units)
+library(scales)
+library(kableExtra)
+library(webshot)
+# devtools::install_github("InseeFrLab/mapvotr")
+library(mapvotr)
+
+library(leaflet)
+library(htmlwidgets)
+library(htmltools)  # for HTML rendering in labels
+library(RColorBrewer)
+library(paletteer) 
+
+```
+
+Objectif : Connaître le taux d'abstention par aire géographique des bureaux de vote (BV) à Marseille. 
+
+Sources : 
+
+- Résultats par BV au premier tour des élections municipales de 2014 :
+https://www.data.gouv.fr/datasets/elections-municipales-2014-resultats-par-bureaux-de-vote
+
+- Résultats par bureau de vote (BV) au premier tour des élections municipales de 2020 : https://www.data.gouv.fr/datasets/municipales-2020-resultats-2nd-tour/
+
+- Résultats par BV au premier tour de l'élection présidentielle de 2022 : 
+https://www.data.gouv.fr/datasets/election-presidentielle-des-10-et-24-avril-2022-resultats-definitifs-du-1er-tour
+(fichier presidentielles22_resultats-par-niveau-burvot-t1-france-entiere.xlsx)
+
+- Résultats par BV au premier tour des élections municipales de 2026 :
+https://www.data.gouv.fr/datasets/elections-municipales-2026-resultats-du-premier-tour
+(fichier municipales-2026-resultats-bv-par-communes-2026-03-20.csv)
+
+- Aires géographiques estimées des BV : 
+https://www.data.gouv.fr/datasets/proposition-de-contours-des-bureaux-de-vote/
+
+```{r, include = FALSE}
+# Plan d'action 
+
+# Restreindre les données aux BV de Marseille 
+
+# Agréger les voix par bord politique et identifier les meilleurs listes et leurs scores
+
+# Joindre les données par un identifiant BV, en s'assurant qu'il est cohérent entre les deux bases. 
+
+```
+
+```{r, include = FALSE} 
+
+# Géographie des BV 
+
+# Restrict to Marseille 
+# (les résultats électoraux sont restreints à Marseille dès leur lecture)
+
+# Les résultats électoraux par BV (municipales 2020 et 2026, présidentielle 2022) 
+# sont lus et traités dans le chunk "RÉSULTATS ÉLECTORAUX PAR BV" plus bas.
+
+# Aires géographiques "contours" estimées par l'INSEE pour chaque BV
+# Source : https://www.data.gouv.fr/datasets/proposition-de-contours-des-bureaux-de-vote/
+contours = read_sf((here("input_data", "contours-france-entiere-latest-v2.geojson")))
+contours_mrs = 
+  contours %>% 
+  filter(nomCommune == "Marseille") # 476 BV
+
+glimpse(contours_mrs)
+unique_BV_contours_mrs = contours_mrs$numeroBureauVote %>% unique() %>% length()
+unique_BV_contours_mrs
+contours_mrs$codeBureauVote %>% unique() %>% length()
+contours_mrs$id_bv %>% unique() %>% length()
+
+
+# Tous les BV et leur adresse
+# Source : https://www.data.gouv.fr/datasets/bureaux-de-vote-et-adresses-de-leurs-electeurs/
+bv_reu = read.csv(here("input_data", "table-bv-reu.csv"))
+bv_reu_mrs = 
+  bv_reu %>% 
+  filter(commune_reu == "marseille") %>% 
+  rowwise %>% 
+  mutate(adresseBV = paste(libelle_reu, num_voie_reu, voie_reu, cp_reu, 
+                            sep = " ")) %>% 
+  ungroup() %>% 
+  mutate(codeBV_inCommune = sub("^[^_]*_", "", id_brut_miom))
+
+bv_reu_mrs$id_brut_reu %>% unique() %>% length()
+bv_reu_mrs$id_brut_insee %>% unique() %>% length() # this is the id from INSEE, the entity providing the shapefile. 
+bv_reu_mrs$id_brut_miom %>% unique() %>% length() # this is the id from the ministère de l'intérieur et des outre-mers, the same entity as the one providing the election data. 
+
+rm(bv_reu, contours)
+
+# Toutes les adresses - hyper lourd (16M de lignes)
+# ad_reu = read.csv(here("input_data", "table-adresses-reu.csv"))
+# maiz = ad_reu %>% filter(grepl("37 rue Smith", geo_adresse))
+# arr = ad_reu %>% filter(code_commune_ref == 69002) # bizarre
+
+# Secteurs des bureaux de vote à *Paris* 
+# download.file(
+#   "https://www.data.gouv.fr/datasets/secteurs-des-bureaux-de-vote-2025/#/resources/acc452ca-05df-483a-993b-bf9154112031", 
+#   destfile = here("input_data", "secteurs-des-bureaux-de-vote-2025.csv"),
+#   mode = "wb")
+# sect_bv = jsonlite::fromJSON(here("input_data", "secteurs-des-bureaux-de-vote-2025.json"))
+# sect_bv = read_json(here("input_data", "secteurs-des-bureaux-de-vote-2025.json"),
+#                     simplifyVector = TRUE)
+# sect_bv = read_csv(here("input_data", "secteurs-des-bureaux-de-vote-2025.csv"))
+# glimpse(sect_bv)
+# sect_bv_flt = sect_bv %>% mutate(across(where(is.data.frame), as.character))
+# sf_bv = read_sf((here("input_data", "secteurs-des-bureaux-de-vote-2025.geojson")))
+# sect_bv %>% st_as_sf(sect_bv, sf_column_name = sect_bv$geo_shape$geometry)
+
+```
+
+# Méthode de répartition des voix exprimées par bord politique
+
+Les pourcentages de voix exprimées sont attribués aux bords politiques en utilisant les nuances politiques des listes candidates telles qu'établies par la Circulaire INTA1931378J pour élections municipales et communautaires des 15 et 22 mars 2020. 
+
+Nous avons choisi de faire les associations suivantes entre les nuances politiques et les bords politiques : 
+Le bord politique "Gauche" comprend les nuances LEXG, LCOM, LFI, LSOC, LRDG, LDVG, LUG, LVEC ; 
+Le bord politique "Centre et divers" comprend les nuances LREM, LMDM, LUDI, LUC, LDVC, LECO, LDIV, LREG, LGJ ; 
+Le bord politique "Droite" comprend les nuances LLR, LUD, LDVD, LDLF, LRN, LEXD ; 
+
+Pour les équivalences avec les partis politiques et plus de détails sur les nuances, voir la Circulaire (https://www.legifrance.gouv.fr/download/pdf/circ?id=44929). 
+
+Les mêmes regroupements de nuances sont appliqués aux élections municipales de 2014 (avec en plus, pour les nuances propres à cette élection, LFG et LPG rattachées à la gauche, LFN et LUMP à la droite) et de 2026 (les nuances LUXD, LUDR et LREC sont rattachées à la droite, LREN et LHOR au centre ; elles ne concernent pas Marseille). 
+
+Les fichiers de l'élection présidentielle de 2022 ne comportent pas de nuance : les candidats sont attribués directement aux bords politiques. Le bord "Gauche" comprend Arthaud, Roussel, Mélenchon, Hidalgo, Jadot et Poutou ; le bord "Centre et divers" comprend Macron et Lassalle ; le bord "Droite" comprend Le Pen, Zemmour, Pécresse et Dupont-Aignan. 
+
+
+```{r resultats-bv, include = FALSE}
+# ==============================================================================
+# RÉSULTATS ÉLECTORAUX PAR BV : LECTURE, ABSTENTION, SCORES PAR BORD, PODIUM
+# Les trois scrutins (municipales 2020 T1, présidentielle 2022 T1, municipales
+# 2026 T1) passent par exactement le même traitement. Pour chacun, on obtient
+# une ligne par BV de Marseille et les variables suivantes, suffixées par le
+# scrutin (ex. mun1_2020) :
+#   pct_Abs_in_Ins_<s>, total_droite_<s>, total_centre_<s>, total_gauche_<s>,
+#   podium_1_<s>, podium_2_<s>, podium_3_<s>
+# ==============================================================================
+
+# 1. Les scrutins à traiter -----------------------------------------------------
+# `format` indique comment lire le fichier (cf. section 3).
+elections = tribble(
+  ~suffixe,      ~libelle,                   ~format,   ~fichier,
+  "mun1_2014",   "T1 municipales 2014",      "mun14",   "MN14_Bvot_T1T2.txt",
+  "mun1_2020",   "T1 municipales 2020",      "mun20",   "2020-05-18-resultats-par-niveau-burvot-t1-france-entiere.xlsx",
+  "pres1_2022",  "T1 présidentielle 2022",   "pres22",  "presidentielles22_resultats-par-niveau-burvot-t1-france-entiere.xlsx",
+  "mun1_2026",   "T1 municipales 2026",      "mun26",   "municipales-2026-resultats-bv-par-communes-2026-03-20.csv"
+)
+
+# SCRUTIN DE RÉFÉRENCE : ses BV (clés idBV_miomFormat) forment la base de la 
+# table finale, et c'est sur ces clés que se fait la jointure avec les contours
+# (chunk de jointure plus bas). Les BV des autres scrutins qui n'existaient pas 
+# en 2020 sont donc écartés, et les BV de 2020 sans résultat ailleurs ont des NA.
+election_ref = "mun1_2020"
+stopifnot(election_ref %in% elections$suffixe)
+
+# 2. Classification en bords ---------------------------------------------------
+# Comparaison EXACTE (%in%) : "LUD" n'attrape pas "LUDI". Ajouts propres à
+#  - 2014 : gauche : LFG, LPG | droite : LFN, LUMP (LFG et LFN sont présentes à 
+#    Marseille, pas LPG ni LUMP) ; "NC" (liste non classée, petites communes) 
+#    reste non classée ;
+#  - 2026 (absentes de Marseille, sans effet ici ; à vérifier si on étend à 
+#    d'autres communes) : droite : LUXD, LUDR, LREC | centre : LREN, LHOR | 
+#    LDSV non classée.
+nuances_gauche = c("LEXG", "LCOM", "LFI", "LSOC", "LRDG", "LDVG", "LUG", "LVEC",
+                   "LFG", "LPG")
+nuances_centre = c("LREM", "LMDM", "LUDI", "LUC", "LDVC", "LECO", "LDIV", "LREG", "LGJ",
+                   "LREN", "LHOR")
+nuances_droite = c("LLR", "LUD", "LDVD", "LDLF", "LRN", "LEXD",
+                   "LFN", "LUMP", "LUXD", "LUDR", "LREC")
+
+classe_nuance = function(x) {
+  case_when(x %in% nuances_gauche ~ "gauche",
+            x %in% nuances_centre ~ "centre",
+            x %in% nuances_droite ~ "droite",
+            TRUE ~ NA_character_)
+}
+
+# Présidentielle 2022 : pas de nuance dans le fichier, donc on classe les
+# candidats. Choix à discuter : Macron et Lassalle -> "centre et divers"
+# (cohérent avec LREM / LDIV), Dupont-Aignan -> droite (cohérent avec LDLF).
+# Regex sans accents ("M.LENCHON") pour ne pas dépendre de l'encodage.
+classe_candidat = function(x) {
+  case_when(str_detect(x, "ARTHAUD|ROUSSEL|M.LENCHON|HIDALGO|JADOT|POUTOU") ~ "gauche",
+            str_detect(x, "MACRON|LASSALLE")                                ~ "centre",
+            str_detect(x, "LE PEN|ZEMMOUR|P.CRESSE|DUPONT-AIGNAN")          ~ "droite",
+            TRUE ~ NA_character_)
+}
+
+# 3. Lecture : un lecteur par format de fichier --------------------------------
+# Chaque lecteur lit le fichier UNE fois et renvoie, pour la commune demandée :
+#   $abstention : idBV_miomFormat, pct_Abs_in_Ins
+#   $listes     : idBV_miomFormat, etiquette (nuance ou nom), pct (% des exprimés), 
+#                 une ligne par BV x liste (ou candidat)
+# La clé idBV_miomFormat est construite partout de la même façon : 
+# code département (2) + code commune (3) + "_" + code BV (4), ex. "13055_0101".
+
+# Fichiers xlsx "résultats par niveau burvot" (municipales 2020, présidentielle 2022)
+# Structure : n_id colonnes d'identification et de résultats globaux, puis des blocs 
+# de taille_bloc colonnes répétés par liste/candidat. Les colonnes d'identification 
+# sont repérées par leur NOM ; les blocs, dont les en-têtes sont dupliqués ou 
+# absents selon le fichier, par leur POSITION (off_etiquette et off_pct : rang, 
+# à partir de 0, de la colonne nuance/nom et de la colonne "% Voix/Exp" dans le bloc).
+# Le fichier 2020 a 577 colonnes : on n'en charge que les colonnes utiles 
+# (col_types = "skip" pour les autres), ce qui allège beaucoup la mémoire et évite 
+# que readxl devine mal le type des colonnes de listes à partir des seules premières 
+# lignes (qui n'ont pas autant de listes que Marseille).
+lire_xlsx_burvot = function(fichier, n_id, taille_bloc, off_etiquette, off_pct,
+                            dpt = "13", cmn = "055") {
+  
+  chemin = here("input_data", fichier)
+  
+  # Lecture d'une seule ligne pour connaître les en-têtes et le nombre de colonnes
+  entetes_all = names(read_xlsx(chemin, n_max = 1, .name_repair = "minimal"))
+  n_col   = length(entetes_all)
+  n_blocs = (n_col - n_id) / taille_bloc
+  stopifnot(n_blocs == round(n_blocs))
+  
+  entetes = entetes_all[seq_len(n_id)]
+  col_id = function(motif) {
+    i = which(str_detect(entetes, regex(motif, ignore_case = TRUE)))
+    if (length(i) != 1) stop("Colonne introuvable (ou ambiguë) dans ", fichier, " : ", motif)
+    i
+  }
+  c_dpt = col_id("^Code du département$")
+  c_cmn = col_id("^Code de la commune$")
+  c_bv  = col_id("^Code (du )?b\\.? ?vote$")
+  c_abs = col_id("^% Abs/Ins$")
+  
+  # Position (dans le fichier) de la colonne étiquette et de la colonne % de chaque bloc
+  debuts     = n_id + taille_bloc * (seq_len(n_blocs) - 1)
+  c_etiq_blocs = debuts + 1 + off_etiquette
+  c_pct_blocs  = debuts + 1 + off_pct
+  
+  types = rep("skip", n_col)
+  types[c(c_dpt, c_cmn, c_bv)] = "text"
+  types[c_abs] = "numeric"
+  types[c_etiq_blocs] = "text"
+  types[c_pct_blocs]  = "numeric"
+  
+  # Seules les colonnes non "skip" sont conservées, dans l'ordre du fichier : 
+  # on retrouve chaque colonne par sa position parmi les colonnes conservées.
+  df = read_xlsx(chemin, col_names = FALSE, skip = 1, col_types = types, 
+                  .name_repair = "minimal")
+  pos = function(i) match(i, which(types != "skip"))
+  
+  cles = tibble(
+    codeDpt = str_pad(as.character(df[[pos(c_dpt)]]), width = 2, "left", pad = "0"),
+    codeCmn = str_pad(as.character(df[[pos(c_cmn)]]), width = 3, "left", pad = "0"),
+    codeBV  = str_pad(as.character(df[[pos(c_bv)]]),  width = 4, "left", pad = "0")
+  ) %>% 
+    mutate(idBV_miomFormat = paste0(codeDpt, codeCmn, "_", codeBV))
+  garde = which(cles$codeDpt == dpt & cles$codeCmn == cmn)
+  ids   = cles$idBV_miomFormat[garde]
+  
+  abstention = tibble(idBV_miomFormat = ids, 
+                      pct_Abs_in_Ins = df[[pos(c_abs)]][garde])
+  
+  listes = 
+    map_dfr(seq_len(n_blocs), function(k) {
+      tibble(idBV_miomFormat = ids,
+             etiquette = toupper(df[[pos(c_etiq_blocs[k])]][garde]),
+             pct = df[[pos(c_pct_blocs[k])]][garde])
+    }) %>% 
+    filter(!is.na(etiquette))                   # emplacements vides
+  
+  rm(df); invisible(gc())                       # libère la mémoire (fichier volumineux)
+  list(abstention = abstention, listes = listes)
+}
+
+# Fichier csv des municipales 2026 : séparateur ";", tout lu en texte, pourcentages
+# du type "47,77%", colonnes repérées par leur nom ("Nuance liste N", ...). 
+# "Code commune" contient déjà dpt + commune (13055) : on filtre sur le CODE (le 
+# libellé "Marseille" attrape aussi Marseillette, dans l'Aude).
+pct_fr = function(x) as.numeric(str_replace(str_remove(x, "%"), ",", "."))
+
+lire_csv_mun26 = function(fichier, dpt = "13", cmn = "055") {
+  
+  df = 
+    read_delim(here("input_data", fichier), delim = ";",
+               col_types = cols(.default = col_character()),
+               col_select = c("Code commune", "Code BV", "% Abstentions",
+                              starts_with("Nuance liste "),
+                              starts_with("% Voix/exprimés "))) %>% 
+    filter(`Code commune` == paste0(dpt, cmn)) %>% 
+    mutate(idBV_miomFormat = paste0(`Code commune`, "_", 
+                                    str_pad(`Code BV`, width = 4, "left", pad = "0")))
+  
+  abstention = df %>% 
+    transmute(idBV_miomFormat, pct_Abs_in_Ins = pct_fr(`% Abstentions`))
+  
+  listes = 
+    df %>% 
+    select(idBV_miomFormat, starts_with("Nuance liste "), starts_with("% Voix/exprimés ")) %>% 
+    pivot_longer(-idBV_miomFormat,
+                 names_to = c(".value", "rang"),
+                 names_pattern = "^(Nuance liste|% Voix/exprimés) (\\d+)$") %>% 
+    filter(!is.na(`Nuance liste`)) %>% 
+    transmute(idBV_miomFormat, 
+              etiquette = `Nuance liste`, 
+              pct = pct_fr(`% Voix/exprimés`))
+  
+  list(abstention = abstention, listes = listes)
+}
+
+# Fichier txt des municipales 2014 : format "long" (une ligne par BV x liste), 
+# séparateur ";", encodage ISO-8859-1, ~17 lignes d'en-tête commençant par "--" 
+# (légende des champs), un seul fichier pour les deux tours (champ 1). Les champs 
+# sont : tour, dpt, commune, nom commune, BV, inscrits, votants, exprimés, n° de 
+# dépôt, nom, prénom, nuance, voix. Il n'y a ni % d'abstention ni % de voix : on 
+# les calcule (abstention = (inscrits - votants) / inscrits ; % = voix / exprimés).
+# On ne garde que les lignes du tour et de la commune demandés, ce qui écarte 
+# aussi les lignes d'en-tête.
+lire_txt_mun14 = function(fichier, tour = 1, dpt = "13", cmn = "055") {
+  
+  lignes = read_lines(here("input_data", fichier), 
+                      locale = locale(encoding = "ISO-8859-1"))
+  lignes = lignes[str_starts(lignes, paste0(tour, ";", dpt, ";", cmn, ";"))]
+  stopifnot(length(lignes) > 0)
+  
+  df = 
+    read_delim(I(lignes), delim = ";", 
+               col_names = c("tour", "codeDpt", "codeCmn", "nomCommune", "codeBV", 
+                             "inscrits", "votants", "exprimes", "depot", "nom", 
+                             "prenom", "nuance", "voix"),
+               col_types = cols(.default = col_character())) %>% 
+    mutate(idBV_miomFormat = paste0(codeDpt, codeCmn, "_", 
+                                    str_pad(codeBV, width = 4, "left", pad = "0")),
+           across(c(inscrits, votants, exprimes, voix), as.numeric))
+  
+  abstention = 
+    df %>% 
+    distinct(idBV_miomFormat, inscrits, votants) %>% 
+    transmute(idBV_miomFormat, 
+              pct_Abs_in_Ins = (inscrits - votants) / inscrits * 100)
+  
+  listes = 
+    df %>% 
+    transmute(idBV_miomFormat, 
+              etiquette = toupper(nuance), 
+              pct = voix / exprimes * 100)
+  
+  list(abstention = abstention, listes = listes)
+}
+
+# 4. Agrégation : scores par bord et podium, à partir du format long ----------
+agrege_scores = function(long, suffixe) {
+  
+  # Contrôle : étiquettes non classées (elles ne compteraient dans aucun bord)
+  non_classees = long %>% filter(is.na(bord)) %>% distinct(etiquette) %>% pull()
+  if (length(non_classees) > 0) 
+    message(suffixe, " - étiquettes non classées : ", paste(non_classees, collapse = ", "))
+  
+  totaux = 
+    long %>% 
+    group_by(idBV_miomFormat) %>% 
+    summarise(total_droite = sum(pct[which(bord == "droite")]),
+              total_centre = sum(pct[which(bord == "centre")]),
+              total_gauche = sum(pct[which(bord == "gauche")]),
+              .groups = "drop")
+  
+  podium = 
+    long %>% 
+    arrange(idBV_miomFormat, desc(pct)) %>% 
+    group_by(idBV_miomFormat) %>% 
+    mutate(rang = row_number()) %>% 
+    filter(rang <= 3) %>% 
+    ungroup() %>% 
+    mutate(podium = factor(paste0("podium_", rang), levels = paste0("podium_", 1:3)),
+           pct_et_parti = paste0(round(pct, 1), "% (", etiquette, ")")) %>% 
+    pivot_wider(id_cols = idBV_miomFormat, names_from = podium, 
+                values_from = pct_et_parti, names_expand = TRUE)
+  
+  inner_join(totaux, podium, by = "idBV_miomFormat")
+}
+
+# 5. Traitement complet d'un scrutin : lecture + classement + agrégation -------
+# Renvoie une ligne par BV, avec toutes les variables suffixées par le scrutin.
+traite_election = function(suffixe, format, fichier, dpt = "13", cmn = "055") {
+  
+  brut = switch(format,
+    mun20  = lire_xlsx_burvot(fichier, n_id = 19, taille_bloc = 9, 
+                              off_etiquette = 1, off_pct = 8, dpt = dpt, cmn = cmn),
+    pres22 = lire_xlsx_burvot(fichier, n_id = 21, taille_bloc = 7, 
+                              off_etiquette = 2, off_pct = 6, dpt = dpt, cmn = cmn),
+    mun26  = lire_csv_mun26(fichier, dpt = dpt, cmn = cmn),
+    mun14  = lire_txt_mun14(fichier, dpt = dpt, cmn = cmn),
+    stop("Format inconnu : ", format)
+  )
+  
+  # Une seule ligne par BV, sinon les jointures dupliqueraient des lignes
+  stopifnot(!anyDuplicated(brut$abstention$idBV_miomFormat))
+  
+  listes = 
+    brut$listes %>% 
+    mutate(bord = if (format == "pres22") classe_candidat(etiquette) else classe_nuance(etiquette))
+  
+  brut$abstention %>% 
+    left_join(agrege_scores(listes, suffixe), by = "idBV_miomFormat") %>% 
+    rename_with(~ paste0(.x, "_", suffixe), -idBV_miomFormat)
+}
+
+# 6. Application aux trois scrutins (un peu long : les xlsx font France entière)
+resultats = 
+  pmap(elections, function(suffixe, format, fichier, ...) traite_election(suffixe, format, fichier)) %>% 
+  set_names(elections$suffixe)
+
+# Contrôle : la somme des trois bords doit faire ~100 pour chaque BV
+iwalk(resultats, function(d, s) {
+  gt = d %>% select(starts_with("total_")) %>% rowSums()
+  cat(s, ": somme des bords (min - max) =", round(min(gt, na.rm = TRUE), 2), "-", 
+      round(max(gt, na.rm = TRUE), 2), "\n")
+})
+
+# 7. Jointure des scrutins, sur les BV du scrutin de référence ------------------
+cles_ref = resultats[[election_ref]]$idBV_miomFormat
+
+# Contrôle de couverture AVANT la jointure : BV du scrutin absents de la référence
+# (créés ou renumérotés depuis, ils seront écartés de la carte), et inversement.
+iwalk(resultats[names(resultats) != election_ref], function(d, s) {
+  cat(s, ":", nrow(d), "BV Marseille |",
+      sum(!d$idBV_miomFormat %in% cles_ref), "absents de", election_ref, "|",
+      sum(!cles_ref %in% d$idBV_miomFormat), "BV de", election_ref, "sans résultat\n")
+})
+
+res_bv_mrs = 
+  reduce(resultats[names(resultats) != election_ref], 
+         left_join, by = "idBV_miomFormat", .init = resultats[[election_ref]])
+
+unique_BV_res_bv_mrs = res_bv_mrs$idBV_miomFormat %>% unique() %>% length() # 480
+stopifnot(unique_BV_res_bv_mrs == nrow(res_bv_mrs))
+
+# Noms des variables du scrutin de référence, utilisés pour la carte
+abs_ref    = paste0("pct_Abs_in_Ins_", election_ref)
+droite_ref = paste0("total_droite_", election_ref)
+gauche_ref = paste0("total_gauche_", election_ref)
+
+# Moyenne de l'abstention sur les scrutins
+res_bv_mrs = 
+  res_bv_mrs %>% 
+  mutate(pct_Abs_in_Ins_avg_toutes = rowMeans(across(all_of(paste0("pct_Abs_in_Ins_", elections$suffixe))), 
+                                              na.rm = TRUE), 
+         diff_pct_Abs_2026from2014 = pct_Abs_in_Ins_mun1_2026 - pct_Abs_in_Ins_mun1_2014)
+
+```
+
+# Methode pour joindre les contours et les résultats des élections par bureau de vote
+
+En restreignant à Marseille, il y a `r length(unique(cles_ref))` bureaux de vote uniques aux municipales de 2020. 
+
+Concernant les bureaux de vote avec une aire géographique estimée, il y a `r unique_BV_contours_mrs` identifiants uniques, pour chacun des 3 formats d'identifiants fournis.  
+
+Pour joindre les données de contours et de résultats électoraux, il faut s'assurer qu'on utilise une clé qui identifie les mêmes BV dans chaque base de données.
+Les résultats électoraux sont fournis par le MIOM, sans explication sur l'identifiant BV.
+Les contours sont fournis par l'INSEE, sans explication sur LES identifiants BV.
+Par contre, l'INSEE fournit une table de correspondance entre différents identifiants BV, avec une documentation. 
+https://www.data.gouv.fr/datasets/bureaux-de-vote-et-adresses-de-leurs-electeurs/
+
+Cette documentation indique que la variable id_brut_miom est l'"identifiant unique dans le système d’information centralisant les résultats électoraux du ministère de l’Intérieur (SIE1) du bureau de vote associé à l’adresse" et est "Construit comme suit : code-commune-ref_code-miom-du-bv-dans-la-commune." (appelons le le format MIOM). 
+En utilisant cet identifiant comme clé, on peut donc déjà joindre avec confiance la table d'équivalence de l'INSEE avec la base des résultats électoraux du MIOM. 
+
+Ensuite, on se sert des équivalences pour ajouter les contours. 
+
+Grâce à la documentation de la table d'équivalence, on comprend que dans contours, il y a deux identifiants distincts: 
+
+- codeBureauVote au format codeDepartementcodeCommune_numeroBureauVote ("format MIOM")
+
+- id_bv qui concatenne un autre format de code département-commune et une version "nettoyée" du numéro de bureau de vote ("format REU / INSEE").
+
+Comme chacun de ces formats est présent dans table d'équivalence, on peut joindre une fois par chacun comme clé. Si on obtient le même résultat, on peut avoir confiance dans la jointure entre les résultats électoraux et contours.   
+
+```{r, include=FALSE}
+# Join election results to equivalence table
+# Use inner_join to be more restrictive about the matches (do not leave unmatched instances in the left)
+res_eq = 
+  inner_join(res_bv_mrs, 
+             bv_reu_mrs, 
+             by = join_by(idBV_miomFormat == id_brut_miom))
+
+# bv_reu_mrs$id_brut_insee %>% anyNA()
+# res_eq$id_brut_insee %>% anyNA()
+# res_eq %>% filter(is.na(id_brut_insee))
+
+# Join to contours, based on a priori MIOM format in both sides
+# (ce sont les clés BV de la municipale 2020, scrutin de référence `election_ref`, qui servent 
+# à la jointure avec les contours : cf. chunk "RÉSULTATS ÉLECTORAUX PAR BV")
+# (contours has 476 rows, so 2 instances less)
+fin = 
+  inner_join(contours_mrs, 
+            res_eq %>% select(adresseBV, idBV_miomFormat, 
+                              contains("id_brut_") | contains("Abs") | contains("pct") | contains("total_") | contains("podium")),
+            by = join_by(codeBureauVote == idBV_miomFormat))
+
+# Check that we get the same matches based on a merge in the other key
+test = 
+   inner_join(contours_mrs, 
+             res_eq %>% select(adresseBV, idBV_miomFormat, contains("id_brut_") | contains("Abs") | contains("pct")), 
+             by = join_by(id_bv == id_brut_insee))
+
+stopifnot(all.equal(
+  test %>% mutate(testvar = as.numeric(numeroBureauVote)*.data[[abs_ref]]) %>% pull(testvar), 
+  fin  %>% mutate(testvar = as.numeric(numeroBureauVote)*.data[[abs_ref]]) %>% pull(testvar)
+))
+
+
+# (/!\ SI ON JOINT DES BASES COUVRANT PLUSIEURS COMMUNES IL FAUT PAS UTILISER JUSTE LE CODE BV AU SEIN DE LA COMMUNE COMME CLE)
+
+```
+Pour `r nrow(fin)` BVs on a une correspondance fiable entre les données de résultats électoraux du MIOM et les contours de l'INSEE. 
+
+On a utilisé la "Table de correspondance expérimentale et ponctuelle des référentiels de bureaux
+de vote" proposée par l'Insee et l'Etalab et la documentation associée (dictionnaire-donnees-bv.pdf et methodology.pdf Annexe B. à ce lien : https://www.data.gouv.fr/datasets/bureaux-de-vote-et-adresses-de-leurs-electeurs/) afin vérifier la crédibilité de la correspondance entre les identifiants dans les deux bases à apairer. 
+
+
+
+
+# Carte de l'abstention et résultats au premier tour des élections municipales de 2020, par bureau de vote
+```{r}
+# Variable à cartographier : abstention au T1 des municipales 2020 (scrutin de référence)
+field_name = abs_ref
+# adresse_field <- "adresseBV"
+
+# ------------------------------------------------------------------------------
+# Préparation du html à renvoyer au clique sur la carte
+# ------------------------------------------------------------------------------
+fn_format = function(var){ifelse(
+              is.na(var),
+              NA_character_,
+              paste0(formatC(var, format = "f", digits = 1, big.mark = " "), " %")
+            )}
+
+# Scrutins affichés dans le label
+elec_pres   = "pres1_2022"   # présidentielle : abstention + bords + podium
+elec_mun    = "mun1_2026"    # municipales : abstention + évolution
+elec_compar = "mun1_2014"    # scrutin de comparaison pour l'évolution de l'abstention
+lib = function(s) elections$libelle[elections$suffixe == s]
+
+# Évolution en points de pourcentage, avec une flèche (▲ hausse, ▼ baisse)
+fmt_evol = function(actuel, ref) {
+  delta  = round(actuel - ref, 1)               # le signe se lit sur la valeur arrondie
+  fleche = case_when(delta > 0 ~ "▲", delta < 0 ~ "▼", TRUE ~ "=")
+  ifelse(is.na(delta),
+         "(pas de résultat en 2014)",
+         paste0("(", fleche, " ", formatC(abs(delta), format = "f", digits = 1), " pt vs. 2014)"))
+}
+
+fin$label_html <- 
+  paste0(
+    "<div style='
+      font-size:20px;
+      line-height:1.5;
+      padding:3px 8px;
+      max-width:700px;
+  '>",
+  
+  "<strong>Abstention</strong><br/>",
+  lib(elec_pres), " : ", fn_format(fin[[paste0("pct_Abs_in_Ins_", elec_pres)]]), "<br/>",
+  lib(elec_mun),  " : ", fn_format(fin[[paste0("pct_Abs_in_Ins_", elec_mun)]]), " ",
+  fmt_evol(fin[[paste0("pct_Abs_in_Ins_", elec_mun)]], 
+           fin[[paste0("pct_Abs_in_Ins_", elec_compar)]]), "<br/><br/>",
+  
+  "<strong>Répartition des voix exprimées et podium des candidats au T1 de la présidentielle 2022 :</strong><br/>",
+  "Gauche : ",             fn_format(fin[[paste0("total_gauche_", elec_pres)]]),
+  "   Centre & divers : ", fn_format(fin[[paste0("total_centre_", elec_pres)]]),
+  "   Droite : ",          fn_format(fin[[paste0("total_droite_", elec_pres)]]), "<br/>",
+  fin[[paste0("podium_1_", elec_pres)]], "<br/>",
+  fin[[paste0("podium_2_", elec_pres)]], "<br/>",
+  fin[[paste0("podium_3_", elec_pres)]], "<br/>"
+  )
+
+
+# 3. Create a color palette based on that field
+# pal <- colorNumeric(palette = "YlOrRd", domain = fin[[field_name]], na.color = "transparent")
+# 3. Quintile categories of abstention (computed on the mapped BV)
+vals    = fin[[field_name]]
+breaks  = quantile(vals, probs = seq(0, 1, 0.2), na.rm = TRUE) %>% unique()  # 6 cut points
+n_class = length(breaks) - 1
+labs = paste0("Q", seq_len(n_class), " (",
+              formatC(head(breaks, -1), format = "f", digits = 1), " – ",
+              formatC(tail(breaks, -1), format = "f", digits = 1), " %)")
+
+fin$abs_quintile = cut(vals, breaks = breaks, labels = labs, include.lowest = TRUE)
+
+# Palette: Esox lucius has exactly 5 colours (light grey -> dark brown), one per quintile
+pal_cols = substr(as.character(paletteer_d("colRoz::v_acanthurus")), 1, 7)   # retire un éventuel canal alpha
+# Garantit l'ordre clair -> foncé (Q1 le plus clair, Q5 le plus foncé), quel que soit l'ordre renvoyé par le paquet
+lum      = colSums(col2rgb(pal_cols) * c(0.299, 0.587, 0.114))
+pal_cols = pal_cols[order(lum, decreasing = TRUE)]
+pal = colorFactor(
+  palette  = pal_cols[seq_len(n_class)],
+  domain   = fin$abs_quintile,
+  na.color = "transparent"
+)
+
+# Nice palettes: 
+# colRoz::v_acanthurus
+# MexBrewer::Naturaleza
+# calecopal::desert - trop militaire
+
+# 4. Build the leaflet map using the precomputed label column
+m <- leaflet(fin) %>%
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  addPolygons(
+    # fillColor = ~pal(get(field_name)), # get() here is fine because field_name is a single string
+    fillColor = ~pal(abs_quintile), 
+    weight = 1,
+    opacity = 1,
+    color = "white",
+    dashArray = "3",
+    fillOpacity = 0.7,   # increased transparency
+    highlightOptions = highlightOptions(
+      weight = 2,
+      color = "#666",
+      fillOpacity = 0.6,
+      bringToFront = TRUE
+    ),
+    popup = ~fin$label_html,
+    popupOptions = popupOptions(
+      style = list("font-weight" = "normal", padding = "3px 8px"),
+      # textsize = "18px",
+      # maxwidth = 600,
+      direction = "auto"
+    )
+  ) %>%
+  addLegend(
+    pal = pal,
+    values = ~abs_quintile,
+    # values = ~get(field_name),
+    opacity = 0.7,
+    title = "Abstention, T1 municipales 2020<br/>(quintiles de BV)", #  "% d'abstention :",
+    position = "bottomleft"
+  )
+
+# 5. Display the map in RStudio viewer
+m
+
+# add title
+m_titled <- htmlwidgets::prependContent(
+  m,
+  htmltools::tags$h3("Abstention et résultats électoraux par bureau de vote")
+)
+
+# 6. Save it as an interactive HTML file. Has to be named "index" for web publication on github. 
+saveWidget(m_titled, file = here("index.html"), selfcontained = TRUE)
+
+```
+
