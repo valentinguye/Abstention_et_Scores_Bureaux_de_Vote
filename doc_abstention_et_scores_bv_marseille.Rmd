@@ -30,15 +30,17 @@ library(RColorBrewer)
 library(paletteer) 
 
 ```
-*Dernière mise à jour* : 15 octobre 2026
+**Dernière mise à jour** : 15 octobre 2026
 
-*Auteur* : Valentin Guye
+**Auteur** : Valentin Guye
 
-*Code source* : https://github.com/valentinguye/Abstention_et_Scores_Bureaux_de_Vote/blob/master/doc_abstention_et_scores_bv_marseille.Rmd 
+[Carte en pleine page](https://valentinguye.github.io/Abstention_et_Scores_Bureaux_de_Vote/)
 
-*Utilisation de l'IA* : le code qui traite les données électorales et produit la carte a été amélioré avec le modèle Claude Haiku 5.5. 
+[Code source](https://github.com/valentinguye/Abstention_et_Scores_Bureaux_de_Vote/blob/master/doc_abstention_et_scores_bv_marseille.Rmd)
 
-*Objectif* : Connaître et voir le taux d'abstention par aire géographique des bureaux de vote (BV) à Marseille. 
+**Utilisation de l'IA** : le code qui traite les données électorales et produit la carte a été amélioré avec le modèle Claude Haiku 5.5. 
+
+**Objectif** : Connaître et voir le taux d'abstention par aire géographique des bureaux de vote (BV) à Marseille. 
 
 # Sources des données 
 
