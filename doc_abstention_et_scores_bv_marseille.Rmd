@@ -746,20 +746,28 @@ function(el, x) {
   afficher(%s);
   map.on('baselayerchange', function(e) { afficher(e.name); });
 
-  // Recalcul robuste : quand Leaflet est pret, quand les polices sont chargees,
-  // puis a chaque redimensionnement / rotation. On force aussi un evenement
-  // 'resize' pour que htmlwidgets recalcule la taille du widget.
-  function recalculer() {
+  // --- Recalcul robuste, notamment sur smartphone ---
+  // On impose la hauteur du widget = hauteur visible reelle (window.innerHeight
+  // suit la barre d'URL sur mobile), moins la hauteur reelle du titre.
+  function ajusterHauteur() {
+    var titre = document.querySelector('h3');
+    var hTitre = titre ? titre.offsetHeight + titre.offsetTop : 0;
+    el.style.height = Math.max(250, window.innerHeight - hTitre) + 'px';
     map.invalidateSize({pan: false});
   }
+
   map.whenReady(function() {
-    recalculer();
-    setTimeout(recalculer, 250);
-    setTimeout(recalculer, 1000);
+    ajusterHauteur();
+    setTimeout(ajusterHauteur, 250);
+    setTimeout(ajusterHauteur, 1000);
   });
-  if (document.fonts && document.fonts.ready) { document.fonts.ready.then(recalculer); }
-  window.addEventListener('resize', recalculer);
-  window.addEventListener('orientationchange', function() { setTimeout(recalculer, 300); });
+  if (document.fonts && document.fonts.ready) { document.fonts.ready.then(ajusterHauteur); }
+
+  window.addEventListener('resize', ajusterHauteur);
+  window.addEventListener('orientationchange', function() { setTimeout(ajusterHauteur, 300); });
+  // visualViewport : le seul evenement fiable quand la barre d'URL mobile
+  // apparait/disparait ou que le clavier s'ouvre.
+  if (window.visualViewport) { window.visualViewport.addEventListener('resize', ajusterHauteur); }
 }",
   jsonlite::toJSON(as.list(legendes), auto_unbox = TRUE),
   jsonlite::toJSON(grp1, auto_unbox = TRUE)
@@ -769,36 +777,29 @@ m <- m %>% htmlwidgets::onRender(js_legendes)
 
 # --- CSS : hauteur de carte plein ecran + legendes et selecteur de couches agrandis ---
 css_page <- htmltools::tags$style(htmltools::HTML("
-  html, body { margin: 0; padding: 0; height: 100%; }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
   h3 { margin: 8px 12px 6px; font-size: 20px; }
 
-  /* La carte occupe tout l'ecran sous le titre : la legende bottomleft
-     est donc forcement dans le viewport, des l'ouverture. */
+  /* dvh = hauteur dynamique : suit la barre d'URL mobile, contrairement a vh.
+     Repli progressif : 100dvh > 100svh > 100vh. */
   .leaflet.html-widget {
     width: 100% !important;
-    height: calc(100vh - 55px) !important;  /* 55px ~ hauteur du titre */
+    height: calc(100vh - 55px) !important;
+    height: calc(100svh - 55px) !important;
+    height: calc(100dvh - 55px) !important;
   }
 
-  /* Legendes plus grandes */
   .leaflet-bottom .info.legend {
-    font-size: 16px;
-    line-height: 1.6;
-    padding: 10px 14px;
-    max-width: 320px;
+    font-size: 16px; line-height: 1.6; padding: 10px 14px; max-width: 320px;
   }
   .info.legend i { width: 22px; height: 22px; }
 
-  /* Encart du selecteur de couches plus grand */
-  .leaflet-control-layers-expanded {
-    font-size: 16px;
-    padding: 12px 14px;
-  }
+  .leaflet-control-layers-expanded { font-size: 16px; padding: 12px 14px; }
   .leaflet-control-layers-list label { font-size: 16px; line-height: 1.7; }
   .leaflet-control-layers-selector { width: 18px; height: 18px; }
 
-  /* Reglages encore un peu plus lisibles sur smartphone */
   @media (max-width: 640px) {
-    .leaflet-bottom .info.legend { font-size: 15px; max-width: 250px; }
+    .leaflet-bottom .info.legend { font-size: 15px; max-width: 75vw; }
     .leaflet-control-layers-expanded, .leaflet-control-layers-list label { font-size: 15px; }
   }
 "))
