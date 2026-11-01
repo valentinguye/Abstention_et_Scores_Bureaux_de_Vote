@@ -12,6 +12,7 @@ library(readxl)
 library(xlsx)
 library(jsonlite)
 library(stringr)
+library(fixest)
 # library(stringi)
 library(DescTools)
 library(rnaturalearth)
@@ -38,7 +39,7 @@ library(paletteer)
 
 [Code source](https://github.com/valentinguye/Abstention_et_Scores_Bureaux_de_Vote/blob/master/doc_abstention_et_scores_bv_marseille.Rmd)
 
-**Utilisation de l'IA** : le code qui traite les données électorales et produit la carte a été amélioré avec le modèle Claude Haiku 5.5. 
+**Utilisation de l'IA** : le code qui traite les données électorales et produit la carte a été amélioré avec le modèle Claude Sonnet 5.5 (effort moyen). 
 
 **Objectif** : Connaître et voir le taux d'abstention par aire géographique des bureaux de vote (BV) à Marseille. 
 
@@ -211,6 +212,13 @@ classe_candidat = function(x) {
             TRUE ~ NA_character_)
 }
 
+# Détection des listes / candidats LFI, pour isoler leur score (variable total_lfi_<scrutin>) :
+#  - municipales (nuances) : nuance "LFI" (présente en 2026 ; pas de liste LFI en 2014 ni en 2020)
+#  - présidentielle 2022 : candidat Mélenchon
+est_lfi_nuance   = function(x) x %in% "LFI"
+est_lfi_candidat = function(x) str_detect(x, "M.LENCHON")
+
+
 # 3. Lecture : un lecteur par format de fichier --------------------------------
 # Chaque lecteur lit le fichier UNE fois et renvoie, pour la commune demandée :
 #   $abstention : idBV_miomFormat, pct_Abs_in_Ins
@@ -375,13 +383,19 @@ agrege_scores = function(long, suffixe) {
   if (length(non_classees) > 0) 
     message(suffixe, " - étiquettes non classées : ", paste(non_classees, collapse = ", "))
   
+  # total_lfi vaut NA (et non 0) pour un scrutin sans aucune liste LFI
+  lfi_presente = any(long$est_lfi)
+  
   totaux = 
     long %>% 
     group_by(idBV_miomFormat) %>% 
     summarise(total_droite = sum(pct[which(bord == "droite")]),
               total_centre = sum(pct[which(bord == "centre")]),
               total_gauche = sum(pct[which(bord == "gauche")]),
+              total_lfi    = if (lfi_presente) sum(pct[which(est_lfi)]) else NA_real_,
               .groups = "drop")
+
+
   
   podium = 
     long %>% 
@@ -417,7 +431,8 @@ traite_election = function(suffixe, format, fichier, dpt = "13", cmn = "055") {
   
   listes = 
     brut$listes %>% 
-    mutate(bord = if (format == "pres22") classe_candidat(etiquette) else classe_nuance(etiquette))
+    mutate(bord = if (format == "pres22") classe_candidat(etiquette) else classe_nuance(etiquette),
+         est_lfi = if (format == "pres22") est_lfi_candidat(etiquette) else est_lfi_nuance(etiquette))
   
   brut$abstention %>% 
     left_join(agrege_scores(listes, suffixe), by = "idBV_miomFormat") %>% 
@@ -431,7 +446,8 @@ resultats =
 
 # Contrôle : la somme des trois bords doit faire ~100 pour chaque BV
 iwalk(resultats, function(d, s) {
-  gt = d %>% select(starts_with("total_")) %>% rowSums()
+  gt = d %>% select(matches("^total_(droite|centre|gauche)_")) %>% rowSums() # (sinon total_lfi, déjà compris dans total_gauche, serait compté en double et 
+
   cat(s, ": somme des bords (min - max) =", round(min(gt, na.rm = TRUE), 2), "-", 
       round(max(gt, na.rm = TRUE), 2), "\n")
 })
@@ -815,3 +831,222 @@ m
 # Save it as an interactive HTML file. Has to be named "index" for web publication on github. 
 saveWidget(m_titled, file = here("index.html"), selfcontained = TRUE)
 ```
+
+# Lien entre abstention et vote de gauche
+
+```{r}
+# ==============================================================================
+# ABSTENTION ET VOTE EN NIVEAU, T1 MUNICIPALES 2026, PAR BUREAU DE VOTE (BV) DE MARSEILLE
+# Variable de vote au choix (paramètre `vote`) :
+#   "gauche" : part de voix de toute la catégorie "gauche" (nuances_gauche, dont LFI)
+#   "lfi"    : part de voix de la seule liste LFI
+# ==============================================================================
+
+# 1. Données d'analyse ----------------------------------------------------------
+suf_2026 = "mun1_2026"
+
+# Secteurs = mairies d'arrondissements : les 2 premiers chiffres du code BV donnent 
+# l'arrondissement (1 à 16), regroupés par deux en 8 secteurs. 
+# (Mêmes définitions que dans analyse_abstention_gauche.R : à ne garder qu'une fois.)
+arr_vers_secteur = c(1, 2, 2, 3, 3, 4, 1, 4, 5, 5, 6, 6, 7, 7, 8, 8)   # indexé par n° d'arrondissement
+labels_secteurs = c("1er secteur (1er et 7e arr.)",  "2e secteur (2e et 3e arr.)", 
+                    "3e secteur (4e et 5e arr.)",    "4e secteur (6e et 8e arr.)",
+                    "5e secteur (9e et 10e arr.)",   "6e secteur (11e et 12e arr.)",
+                    "7e secteur (13e et 14e arr.)",  "8e secteur (15e et 16e arr.)")
+
+analyse_niv = 
+  res_bv_mrs %>% 
+  transmute(
+    idBV_miomFormat,
+    abs_2026    = .data[[paste0("pct_Abs_in_Ins_", suf_2026)]],   # abstention, % des inscrits
+    gauche_2026 = .data[[paste0("total_gauche_", suf_2026)]],     # part de la catégorie gauche, % des exprimés
+    lfi_2026    = .data[[paste0("total_lfi_", suf_2026)]],        # part de la liste LFI, % des exprimés
+    arrondissement = as.integer(str_sub(sub("^.*_", "", idBV_miomFormat), 1, 2)),
+    secteur = factor(labels_secteurs[arr_vers_secteur[arrondissement]], levels = labels_secteurs)
+  ) %>% 
+  filter(!is.na(abs_2026), !is.na(gauche_2026), !is.na(lfi_2026))
+
+stopifnot(!anyNA(analyse_niv$secteur))
+
+# 2. Paramètre : le vote analysé --------------------------------------------------
+vote_var = c(gauche = "gauche_2026", lfi = "lfi_2026")
+vote_lab = c(gauche = "Part de voix de gauche en 2026\n(% des exprimés)",
+             lfi    = "Part de voix LFI en 2026\n(% des exprimés)")
+vote_nom = c(gauche = "vote de gauche (toutes nuances de gauche)", lfi = "vote LFI")
+lab_abs_2026 = "Abstention au T1 des municipales 2026 (% des inscrits)"
+couleur_fit  = "#BD6E39"                  # colRoz::v_acanthurus
+
+# 3. Graphique ajusté : nuage de points + droite de régression (IC à 95 %) ---------
+scatter_fit_xy = function(df, titre, xlim, ylim, x, y, axes_titres = TRUE, lab_y = NULL) {
+  mod   = lm(reformulate(x, response = y), data = df)
+  stats = sprintf("r = %.2f ; pente = %.2f ; n = %d BV", 
+                  cor(df[[x]], df[[y]]), coef(mod)[2], nrow(df))
+  
+  ggplot(df, aes(x = .data[[x]], y = .data[[y]])) +
+    geom_point(alpha = 0.55, size = 1.8, colour = "grey30") +
+    geom_smooth(method = "lm", formula = y ~ x, se = TRUE, 
+                colour = couleur_fit, fill = couleur_fit, alpha = 0.2) +
+    coord_cartesian(xlim = xlim, ylim = ylim) +
+    labs(title = titre, subtitle = stats,
+         x = if (axes_titres) lab_abs_2026 else NULL, 
+         y = if (axes_titres) lab_y else NULL) +
+    theme_minimal(base_size = 11) +
+    theme(plot.title = element_text(face = "bold", size = 11),
+          plot.subtitle = element_text(size = 9, colour = "grey30"))
+}
+
+resume_xy = function(df, x, y) {
+  mod = lm(reformulate(x, response = y), data = df)
+  tibble(n_BV = nrow(df), r = cor(df[[x]], df[[y]]), pente = coef(mod)[[2]], 
+         r2 = summary(mod)$r.squared)
+}
+
+# 4. Analyse complète pour un vote donné : ensemble, un graphique par secteur, tableau ----
+produit_analyse_niveau = function(vote = c("gauche", "lfi")) {
+  vote = match.arg(vote)
+  x = "abs_2026"
+  y = vote_var[[vote]]
+  
+  # Axes communs à tous les graphiques, pour que les secteurs soient comparables
+  xlim = range(analyse_niv[[x]])
+  ylim = range(analyse_niv[[y]]) + c(-1, 1) * 0.1 * diff(range(analyse_niv[[y]]))
+  
+  # Ensemble de Marseille
+  p_global = scatter_fit_xy(analyse_niv, paste0("Marseille, ", vote_nom[[vote]]), 
+                            xlim, ylim, x, y, lab_y = vote_lab[[vote]])
+  
+  # Un graphique par secteur, assemblés avec ggarrange()
+  plots_secteurs = 
+    analyse_niv %>% 
+    group_split(secteur) %>% 
+    map(~ scatter_fit_xy(.x, as.character(.x$secteur[1]), xlim, ylim, x, y, axes_titres = FALSE))
+  
+  fig_secteurs = 
+    ggarrange(plotlist = plots_secteurs, ncol = 4, nrow = 2) %>% 
+    annotate_figure(top    = text_grob(paste0("Abstention et ", vote_nom[[vote]], ", T1 municipales 2026"), 
+                                       face = "bold", size = 13),
+                    bottom = text_grob(lab_abs_2026, size = 11),
+                    left   = text_grob(vote_lab[[vote]], size = 11, rot = 90))
+  
+  # Tableau récapitulatif : corrélation (r), pente, R² et nombre de BV
+  resume = 
+    bind_rows(
+      resume_xy(analyse_niv, x, y) %>% mutate(secteur = "Marseille (ensemble)", .before = 1),
+      analyse_niv %>% group_by(secteur) %>% group_modify(~ resume_xy(.x, x, y)) %>% ungroup() %>% 
+        mutate(secteur = as.character(secteur))
+    ) %>% 
+    mutate(across(c(r, pente, r2), ~ round(.x, 2)))
+  
+  list(p_global = p_global, fig_secteurs = fig_secteurs, resume = resume)
+}
+
+# 5. Les deux analyses ------------------------------------------------------------
+# Figures par secteur : options de chunk fig.width = 14, fig.height = 7.5
+an_niv_gauche = produit_analyse_niveau("gauche")
+an_niv_lfi    = produit_analyse_niveau("lfi")
+
+an_niv_gauche$p_global ; an_niv_gauche$fig_secteurs ; an_niv_gauche$resume
+an_niv_lfi$p_global    ; an_niv_lfi$fig_secteurs    ; an_niv_lfi$resume
+
+
+
+```
+
+```{r}
+
+# ==============================================================================
+# LIEN ENTRE BAISSE DE L'ABSTENTION ET VARIATION DU VOTE DE GAUCHE
+# T1 municipales 2020 -> T1 municipales 2026, par bureau de vote (BV) de Marseille
+# ==============================================================================
+
+# 1. Données d'analyse ----------------------------------------------------------
+suf_ref = "mun1_2020"
+suf_new = "mun1_2026"
+
+# Secteurs = mairies d'arrondissements de Marseille : 8 secteurs de 2 arrondissements chacun.
+# Pas besoin de shapefile : les deux premiers chiffres du code BV sont le numéro de 
+# l'arrondissement (ex. "13055_0101" -> 01 ; "13055_1417" -> 14). 
+# Seul le regroupement arrondissements -> secteurs est ajouté ici.
+arr_vers_secteur = c(1, 2, 2, 3, 3, 4, 1, 4, 5, 5, 6, 6, 7, 7, 8, 8)   # indexé par n° d'arrondissement (1 à 16)
+labels_secteurs = c("1er secteur (1er et 7e arr.)",  "2e secteur (2e et 3e arr.)", 
+                    "3e secteur (4e et 5e arr.)",    "4e secteur (6e et 8e arr.)",
+                    "5e secteur (9e et 10e arr.)",   "6e secteur (11e et 12e arr.)",
+                    "7e secteur (13e et 14e arr.)",  "8e secteur (15e et 16e arr.)")
+
+analyse = 
+  res_bv_mrs %>% 
+  transmute(
+    idBV_miomFormat,
+    # Baisse de l'abstention en points (positive = l'abstention a baissé)
+    baisse_abs = .data[[paste0("pct_Abs_in_Ins_", suf_ref)]] - .data[[paste0("pct_Abs_in_Ins_", suf_new)]],
+    # Variation de la part des voix exprimées de la catégorie "gauche" (nuances_gauche), en points
+    var_gauche = .data[[paste0("total_gauche_", suf_new)]] - .data[[paste0("total_gauche_", suf_ref)]],
+    arrondissement = as.integer(str_sub(sub("^.*_", "", idBV_miomFormat), 1, 2)),
+    secteur = factor(labels_secteurs[arr_vers_secteur[arrondissement]], levels = labels_secteurs)
+  ) %>% 
+  filter(!is.na(baisse_abs), !is.na(var_gauche))
+
+stopifnot(!anyNA(analyse$secteur))        # tous les BV ont un arrondissement entre 1 et 16
+
+# 2. Graphique ajusté (nuage de points + droite de régression et son IC à 95 %) ----
+lab_x = "Baisse de l'abstention, 2020 → 2026 (points)"
+lab_y = "Variation de la part de voix de gauche,\n2020 → 2026 (points de % des exprimés)"
+couleur_fit = "#BD6E39"                  # colRoz::v_acanthurus
+
+scatter_fit = function(df, titre, xlim, ylim, axes_titres = TRUE) {
+  mod   = lm(var_gauche ~ baisse_abs, data = df)
+  stats = sprintf("pente = %.2f ; R² = %.2f ; n = %d BV", 
+                  coef(mod)[2], summary(mod)$r.squared, nrow(df))
+  
+  ggplot(df, aes(x = baisse_abs, y = var_gauche)) +
+    geom_hline(yintercept = 0, colour = "grey70", linewidth = 0.3) +
+    geom_point(alpha = 0.55, size = 1.8, colour = "grey30") +
+    geom_smooth(method = "lm", formula = y ~ x, se = TRUE, 
+                colour = couleur_fit, fill = couleur_fit, alpha = 0.2) +
+    coord_cartesian(xlim = xlim, ylim = ylim) +
+    labs(title = titre, subtitle = stats,
+         x = if (axes_titres) lab_x else NULL, 
+         y = if (axes_titres) lab_y else NULL) +
+    theme_minimal(base_size = 11) +
+    theme(plot.title = element_text(face = "bold", size = 11),
+          plot.subtitle = element_text(size = 9, colour = "grey30"))
+}
+
+# Axes communs à tous les graphiques, pour que les secteurs soient comparables
+xlim = range(analyse$baisse_abs)
+ylim = range(analyse$var_gauche)
+
+# 3. Ensemble de Marseille -------------------------------------------------------
+p_global = scatter_fit(analyse, "Marseille, ensemble des bureaux de vote", xlim, ylim)
+p_global
+
+# 4. Un graphique par secteur, assemblés avec ggarrange() ------------------------
+# À utiliser avec les options de chunk : fig.width = 14, fig.height = 7.5
+plots_secteurs = 
+  analyse %>% 
+  group_split(secteur) %>% 
+  map(~ scatter_fit(.x, as.character(.x$secteur[1]), xlim, ylim, axes_titres = FALSE))
+
+fig_secteurs = 
+  ggarrange(plotlist = plots_secteurs, ncol = 4, nrow = 2) %>% 
+  annotate_figure(bottom = text_grob(lab_x, size = 11),
+                  left   = text_grob(lab_y, size = 11, rot = 90))
+fig_secteurs
+
+# 5. Tableau récapitulatif : pente, R² et nombre de BV, ensemble et par secteur ----
+resume_pente = function(df) {
+  mod = lm(var_gauche ~ baisse_abs, data = df)
+  tibble(n_BV = nrow(df), pente = coef(mod)[[2]], r2 = summary(mod)$r.squared)
+}
+
+resume_secteurs = 
+  bind_rows(
+    resume_pente(analyse) %>% mutate(secteur = "Marseille (ensemble)", .before = 1),
+    analyse %>% group_by(secteur) %>% group_modify(~ resume_pente(.x)) %>% ungroup() %>% 
+      mutate(secteur = as.character(secteur))
+  ) %>% 
+  mutate(across(c(pente, r2), ~ round(.x, 2)))
+resume_secteurs
+```
+
+
