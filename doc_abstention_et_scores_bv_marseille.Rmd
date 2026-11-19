@@ -6,30 +6,19 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
 library(here)
-library(tidyverse)
+library(tidyverse)    # dplyr, tidyr, stringr, purrr, readr, tibble...
 library(sf)
 library(readxl)
-library(xlsx)
 library(jsonlite)
-library(stringr)
-library(fixest)
-# library(stringi)
-library(DescTools)
-library(rnaturalearth)
-library(ggpubr)
-library(units)
-library(scales)
-library(kableExtra)
-library(webshot)
-# devtools::install_github("InseeFrLab/mapvotr")
-library(mapvotr)
-
 library(leaflet)
 library(htmlwidgets)
-library(htmltools)  # for HTML rendering in labels
+library(htmltools)    # for HTML rendering in labels
 library(RColorBrewer)
 library(paletteer) 
 
+# Paquets de l'ancienne version, non utilisés dans ce script (à réactiver si besoin) : 
+# xlsx (nécessite Java ; la lecture des xlsx se fait avec readxl), fixest, DescTools, rnaturalearth, 
+# ggpubr, units, scales, kableExtra, webshot, mapvotr (devtools::install_github("InseeFrLab/mapvotr"))
 ```
 **Dernière mise à jour** : 15 octobre 2026
 
@@ -50,6 +39,8 @@ https://www.data.gouv.fr/datasets/elections-municipales-2014-resultats-par-burea
 
 - Résultats par bureau de vote (BV) au premier tour des élections municipales de 2020 : https://www.data.gouv.fr/datasets/municipales-2020-resultats-2nd-tour/
 
+- Résultats par BV au premier tour de l'élection présidentielle de 2017 : (fichier PR17_BVot_T1_FE.txt, data.gouv.fr ; URL à compléter)
+
 - Résultats par BV au premier tour de l'élection présidentielle de 2022 : 
 https://www.data.gouv.fr/datasets/election-presidentielle-des-10-et-24-avril-2022-resultats-definitifs-du-1er-tour
 (fichier presidentielles22_resultats-par-niveau-burvot-t1-france-entiere.xlsx)
@@ -57,6 +48,8 @@ https://www.data.gouv.fr/datasets/election-presidentielle-des-10-et-24-avril-202
 - Résultats par BV au premier tour des élections municipales de 2026 :
 https://www.data.gouv.fr/datasets/elections-municipales-2026-resultats-du-premier-tour
 (fichier municipales-2026-resultats-bv-par-communes-2026-03-20.csv)
+
+- Résultats par BV aux élections législatives de 2022 et 2024, 1er et 2nd tours : (fichiers legislatives_2022_T1_resultats-definitifs-par-bureau-de-vote.xlsx et suivants, data.gouv.fr ; URL à compléter)
 
 - Aires géographiques estimées des BV : 
 https://www.data.gouv.fr/datasets/proposition-de-contours-des-bureaux-de-vote/
@@ -76,12 +69,6 @@ https://www.data.gouv.fr/datasets/proposition-de-contours-des-bureaux-de-vote/
 
 # Géographie des BV 
 
-# Restrict to Marseille 
-# (les résultats électoraux sont restreints à Marseille dès leur lecture)
-
-# Les résultats électoraux par BV (municipales 2020 et 2026, présidentielle 2022) 
-# sont lus et traités dans le chunk "RÉSULTATS ÉLECTORAUX PAR BV" plus bas.
-
 # Aires géographiques "contours" estimées par l'INSEE pour chaque BV
 # Source : https://www.data.gouv.fr/datasets/proposition-de-contours-des-bureaux-de-vote/
 contours = read_sf((here("input_data", "contours-france-entiere-latest-v2.geojson")))
@@ -89,12 +76,9 @@ contours_mrs =
   contours %>% 
   filter(nomCommune == "Marseille") # 476 BV
 
-glimpse(contours_mrs)
+# Nombre de BV uniques de Marseille dans les contours (cité dans le texte). Il est le même pour chacun 
+# des trois identifiants fournis : numeroBureauVote, codeBureauVote et id_bv.
 unique_BV_contours_mrs = contours_mrs$numeroBureauVote %>% unique() %>% length()
-unique_BV_contours_mrs
-contours_mrs$codeBureauVote %>% unique() %>% length()
-contours_mrs$id_bv %>% unique() %>% length()
-
 
 # Tous les BV et leur adresse
 # Source : https://www.data.gouv.fr/datasets/bureaux-de-vote-et-adresses-de-leurs-electeurs/
@@ -108,30 +92,11 @@ bv_reu_mrs =
   ungroup() %>% 
   mutate(codeBV_inCommune = sub("^[^_]*_", "", id_brut_miom))
 
-bv_reu_mrs$id_brut_reu %>% unique() %>% length()
-bv_reu_mrs$id_brut_insee %>% unique() %>% length() # this is the id from INSEE, the entity providing the shapefile. 
-bv_reu_mrs$id_brut_miom %>% unique() %>% length() # this is the id from the ministère de l'intérieur et des outre-mers, the same entity as the one providing the election data. 
+# id_brut_insee : identifiant de l'INSEE, qui fournit les contours ; 
+# id_brut_miom : identifiant du ministère de l'intérieur et des outre-mers, qui fournit les résultats 
+# électoraux (même format que idBV_miomFormat).
 
 rm(bv_reu, contours)
-
-# Toutes les adresses - hyper lourd (16M de lignes)
-# ad_reu = read.csv(here("input_data", "table-adresses-reu.csv"))
-# maiz = ad_reu %>% filter(grepl("37 rue Smith", geo_adresse))
-# arr = ad_reu %>% filter(code_commune_ref == 69002) # bizarre
-
-# Secteurs des bureaux de vote à *Paris* 
-# download.file(
-#   "https://www.data.gouv.fr/datasets/secteurs-des-bureaux-de-vote-2025/#/resources/acc452ca-05df-483a-993b-bf9154112031", 
-#   destfile = here("input_data", "secteurs-des-bureaux-de-vote-2025.csv"),
-#   mode = "wb")
-# sect_bv = jsonlite::fromJSON(here("input_data", "secteurs-des-bureaux-de-vote-2025.json"))
-# sect_bv = read_json(here("input_data", "secteurs-des-bureaux-de-vote-2025.json"),
-#                     simplifyVector = TRUE)
-# sect_bv = read_csv(here("input_data", "secteurs-des-bureaux-de-vote-2025.csv"))
-# glimpse(sect_bv)
-# sect_bv_flt = sect_bv %>% mutate(across(where(is.data.frame), as.character))
-# sf_bv = read_sf((here("input_data", "secteurs-des-bureaux-de-vote-2025.geojson")))
-# sect_bv %>% st_as_sf(sect_bv, sf_column_name = sect_bv$geo_shape$geometry)
 
 ```
 
@@ -148,17 +113,27 @@ Pour les équivalences avec les partis politiques et plus de détails sur les nu
 
 Les mêmes regroupements de nuances sont appliqués aux élections municipales de 2014 (avec en plus, pour les nuances propres à cette élection, LFG et LPG rattachées à la gauche, LFN et LUMP à la droite) et de 2026 (les nuances LUXD, LUDR et LREC sont rattachées à la droite, LREN et LHOR au centre ; elles ne concernent pas Marseille). 
 
+Pour la présidentielle de 2017 (même logique, car le fichier ne comporte pas non plus de nuance), le bord "Gauche" comprend Arthaud, Poutou, Mélenchon et Hamon ; le bord "Centre et divers" comprend Macron, Lassalle, Cheminade et Asselineau (candidats "divers") ; le bord "Droite" comprend Fillon, Le Pen et Dupont-Aignan. 
+
 Les fichiers de l'élection présidentielle de 2022 ne comportent pas de nuance : les candidats sont attribués directement aux bords politiques. Le bord "Gauche" comprend Arthaud, Roussel, Mélenchon, Hidalgo, Jadot et Poutou ; le bord "Centre et divers" comprend Macron et Lassalle ; le bord "Droite" comprend Le Pen, Zemmour, Pécresse et Dupont-Aignan. 
+
+Pour les élections législatives de 2022 et 2024, les codes de nuance n'ont pas le préfixe "L" ; ils sont rattachés selon la même logique : le bord "Gauche" comprend EXG, DXG, FI, COM, SOC, RDG, DVG, VEC et les coalitions NUP (NUPES, 2022) et UG (Nouveau Front populaire, 2024) ; le bord "Centre et divers" comprend ENS, UDI, HOR, DVC, ECO, REG et DIV ; le bord "Droite" comprend LR, DVD, DXD, EXD, REC, RN et UXD. La nuance DSV (divers souverainistes) n'est rattachée à aucun bord. 
+
+Le score de LFI est isolé séparément : nuance LFI aux municipales de 2026, candidat Mélenchon aux présidentielles et, aux législatives, où les candidats LFI sont codés NUP ou UG comme leurs alliés, par le nom des candidats investis par LFI à Marseille (Bensaada, Bompard, Davi et Delogu en 2022 ; Bompard, Davi, Delogu et Popelard en 2024). Hendrik Davi, candidat LFI en 2022, se présente en dissident (nuance DVG) en 2024 : il est compté comme LFI aux deux scrutins pour suivre la même famille politique. Le score du RN comprend les nuances LRN (2020, 2026), LFN (2014, Front national), RN et UXD (législatives) et la candidate Le Pen aux présidentielles. 
+
+**Nouvelles voix et contribution potentielle.** Entre les T1 des législatives de 2022 et de 2024, l'abstention baisse dans tous les BV et les voix exprimées augmentent. En supposant que les électeurs de 2022 ont voté de la même façon en 2024, la part d'une famille politique parmi les voix exprimées supplémentaires ("nouvelles voix") se déduit des scores et des nombres de voix exprimées des deux scrutins. La contribution potentielle est le solde de voix (famille moins autres familles) qu'apporteraient les abstentionnistes restants s'ils votaient comme les nouveaux votants : c'est un scénario, pas une prévision. Elle n'est calculée que pour les BV où la famille avait des candidats aux deux scrutins et où les voix exprimées augmentent d'au moins 5 %. 
+
 
 
 ```{r resultats-bv, include = FALSE}
 # ==============================================================================
 # RÉSULTATS ÉLECTORAUX PAR BV : LECTURE, ABSTENTION, SCORES PAR BORD, PODIUM
-# Les trois scrutins (municipales 2020 T1, présidentielle 2022 T1, municipales
-# 2026 T1) passent par exactement le même traitement. Pour chacun, on obtient
-# une ligne par BV de Marseille et les variables suivantes, suffixées par le
-# scrutin (ex. mun1_2020) :
-#   pct_Abs_in_Ins_<s>, total_droite_<s>, total_centre_<s>, total_gauche_<s>,
+# Les scrutins (municipales 2014, 2020 et 2026 ; présidentielles 2017 et 2022 ; législatives
+# 2022 et 2024, T1 et T2) passent par exactement le même traitement. Pour chacun, on obtient
+# une ligne par BV de Marseille et les variables suivantes, suffixées par le scrutin 
+# (ex. mun1_2020) :
+#   pct_Abs_in_Ins_<s>, inscrits_<s>, votants_<s>, exprimes_<s>,
+#   total_droite_<s>, total_centre_<s>, total_gauche_<s>, total_lfi_<s>, total_rn_<s>,
 #   podium_1_<s>, podium_2_<s>, podium_3_<s>
 # ==============================================================================
 
@@ -167,8 +142,13 @@ Les fichiers de l'élection présidentielle de 2022 ne comportent pas de nuance 
 elections = tribble(
   ~suffixe,      ~libelle,                   ~format,   ~fichier,
   "mun1_2014",   "T1 municipales 2014",      "mun14",   "MN14_Bvot_T1T2.txt",
+  "pres1_2017",  "T1 présidentielle 2017",   "pres17",  "PR17_BVot_T1_FE.txt",
   "mun1_2020",   "T1 municipales 2020",      "mun20",   "2020-05-18-resultats-par-niveau-burvot-t1-france-entiere.xlsx",
   "pres1_2022",  "T1 présidentielle 2022",   "pres22",  "presidentielles22_resultats-par-niveau-burvot-t1-france-entiere.xlsx",
+  "leg1_2022",   "T1 législatives 2022",     "leg22",   "legislatives_2022_T1_resultats-definitifs-par-bureau-de-vote.xlsx",
+  "leg2_2022",   "T2 législatives 2022",     "leg22",   "legislatives_2022_T2_resultats-definitifs-par-bureau-de-vote.xlsx",
+  "leg1_2024",   "T1 législatives 2024",     "leg24",   "legislatives_2024_T1_resultats-definitifs-par-bureau-de-vote.xlsx",
+  "leg2_2024",   "T2 législatives 2024",     "leg24",   "legislatives_2024_T2_resultats-definitifs-par-bureau-de-vote.xlsx",
   "mun1_2026",   "T1 municipales 2026",      "mun26",   "municipales-2026-resultats-bv-par-communes-2026-03-20.csv"
 )
 
@@ -187,12 +167,22 @@ stopifnot(election_ref %in% elections$suffixe)
 #  - 2026 (absentes de Marseille, sans effet ici ; à vérifier si on étend à 
 #    d'autres communes) : droite : LUXD, LUDR, LREC | centre : LREN, LHOR | 
 #    LDSV non classée.
+#  - législatives 2022 et 2024 : les codes n'ont pas le préfixe "L" (NUP, ENS, RN...), 
+#    donc pas de collision avec les nuances municipales. Même logique de classement :
+#    gauche : EXG, DXG, FI, COM, SOC, RDG, DVG, VEC, et les coalitions NUP (NUPES, 2022) 
+#    et UG (Nouveau Front populaire, 2024) | centre : ENS, UDI, HOR, DVC, ECO, REG, DIV 
+#    (comme LECO, LREG, LDIV) | droite : LR, DVD, DXD, EXD, REC, RN, UXD. 
+#    "DSV" (divers souverainistes) reste non classée, comme LDSV : elle apparaît à Marseille
+#    en 2022 et 2024 (petits scores), la somme des bords y est donc un peu inférieure à 100.
 nuances_gauche = c("LEXG", "LCOM", "LFI", "LSOC", "LRDG", "LDVG", "LUG", "LVEC",
-                   "LFG", "LPG")
+                   "LFG", "LPG",
+                   "EXG", "DXG", "FI", "COM", "SOC", "RDG", "DVG", "VEC", "NUP", "UG")
 nuances_centre = c("LREM", "LMDM", "LUDI", "LUC", "LDVC", "LECO", "LDIV", "LREG", "LGJ",
-                   "LREN", "LHOR")
+                   "LREN", "LHOR",
+                   "ENS", "UDI", "HOR", "DVC", "ECO", "REG", "DIV")
 nuances_droite = c("LLR", "LUD", "LDVD", "LDLF", "LRN", "LEXD",
-                   "LFN", "LUMP", "LUXD", "LUDR", "LREC")
+                   "LFN", "LUMP", "LUXD", "LUDR", "LREC",
+                   "LR", "DVD", "DXD", "EXD", "REC", "RN", "UXD")
 
 classe_nuance = function(x) {
   case_when(x %in% nuances_gauche ~ "gauche",
@@ -201,53 +191,91 @@ classe_nuance = function(x) {
             TRUE ~ NA_character_)
 }
 
-# Présidentielle 2022 : pas de nuance dans le fichier, donc on classe les
+# Présidentielles 2017 et 2022 : pas de nuance dans les fichiers, donc on classe les
 # candidats. Choix à discuter : Macron et Lassalle -> "centre et divers"
 # (cohérent avec LREM / LDIV), Dupont-Aignan -> droite (cohérent avec LDLF).
+# Candidats propres à 2017 : Hamon -> gauche ; Fillon -> droite ; Cheminade et 
+# Asselineau -> "centre et divers" (candidats "divers", cohérent avec LDIV ; Asselineau, 
+# souverainiste, pourrait aussi être rangé à droite).
 # Regex sans accents ("M.LENCHON") pour ne pas dépendre de l'encodage.
 classe_candidat = function(x) {
-  case_when(str_detect(x, "ARTHAUD|ROUSSEL|M.LENCHON|HIDALGO|JADOT|POUTOU") ~ "gauche",
-            str_detect(x, "MACRON|LASSALLE")                                ~ "centre",
-            str_detect(x, "LE PEN|ZEMMOUR|P.CRESSE|DUPONT-AIGNAN")          ~ "droite",
+  case_when(str_detect(x, "ARTHAUD|ROUSSEL|M.LENCHON|HIDALGO|JADOT|POUTOU|HAMON") ~ "gauche",
+            str_detect(x, "MACRON|LASSALLE|CHEMINADE|ASSELINEAU")                  ~ "centre",
+            str_detect(x, "LE PEN|ZEMMOUR|P.CRESSE|DUPONT-AIGNAN|FILLON")          ~ "droite",
             TRUE ~ NA_character_)
 }
 
-# Détection des listes / candidats LFI, pour isoler leur score (variable total_lfi_<scrutin>) :
-#  - municipales (nuances) : nuance "LFI" (présente en 2026 ; pas de liste LFI en 2014 ni en 2020)
-#  - présidentielle 2022 : candidat Mélenchon
-est_lfi_nuance   = function(x) x %in% "LFI"
-est_lfi_candidat = function(x) str_detect(x, "M.LENCHON")
+# Détection de LFI et du RN, pour isoler leur score (total_lfi_<scrutin>, total_rn_<scrutin>) ;
+# NA (et non 0) pour un scrutin sans aucune liste / candidat de ce parti.
+#  - municipales : nuances "LFI" (2026 ; pas de liste LFI en 2014 ni en 2020) ; "LRN" (2020, 2026)
+#    et "LFN" (2014, Front national)
+#  - présidentielles 2017 et 2022 : candidats Mélenchon et Le Pen (Zemmour n'est pas compté)
+#  - législatives 2022 et 2024 : les candidats LFI de NUPES (2022) et du NFP (2024) sont codés NUP / UG, 
+#    comme leurs alliés : la nuance ne permet pas de les isoler. On les repère donc par leur NOM, avec la 
+#    liste des candidats LFI de Marseille ci-dessous. Pour le RN : nuances "RN" et "UXD" (union de 
+#    l'extrême droite autour du RN ; proxy, il peut inclure des candidats LR alliés au RN).
+#    Les noms sont uniques à Marseille ; à vérifier si on étend le script à d'autres communes.
+# Candidats LFI à Marseille (investis par LFI au sein de NUPES en 2022 et du NFP en 2024 ; sources : 
+# presse locale, cf. réponse). DAVI (5e circonscription) est LFI en 2022 et "LFI dissident" en 2024 
+# (nuance DVG, hors NFP) : il est compté comme LFI aux deux scrutins pour garder la continuité de 
+# l'électorat ; retirer "DAVI" de candidats_lfi_leg24 pour ne compter que les candidats investis.
+candidats_lfi_leg22 = c("BENSAADA", "BOMPARD", "DAVI", "DELOGU")     # 3e, 4e, 5e et 7e circonscriptions
+candidats_lfi_leg24 = c("BOMPARD", "DAVI", "DELOGU", "POPELARD")     # 4e, 5e (Davi et Popelard) et 7e
+
+detecte_lfi = function(format, etiquette, nom) {
+  if (format %in% c("pres17", "pres22")) return(str_detect(etiquette, "M.LENCHON"))
+  if (format == "leg22") return(nom %in% candidats_lfi_leg22)
+  if (format == "leg24") return(nom %in% candidats_lfi_leg24)
+  etiquette %in% c("LFI", "FI")
+}
+
+detecte_rn = function(format, etiquette) {
+  if (format %in% c("pres17", "pres22")) return(str_detect(etiquette, "LE PEN"))
+  etiquette %in% c("LRN", "LFN", "RN", "UXD")
+}
 
 
 # 3. Lecture : un lecteur par format de fichier --------------------------------
 # Chaque lecteur lit le fichier UNE fois et renvoie, pour la commune demandée :
-#   $abstention : idBV_miomFormat, pct_Abs_in_Ins
-#   $listes     : idBV_miomFormat, etiquette (nuance ou nom), pct (% des exprimés), 
+#   $abstention : idBV_miomFormat, pct_Abs_in_Ins, inscrits, votants, exprimes
+#   $listes     : idBV_miomFormat, etiquette (nuance ou nom), nom (nom du candidat, renseigné pour les 
+#                 législatives, où il sert à repérer LFI ; NA sinon), pct (% des exprimés), 
 #                 une ligne par BV x liste (ou candidat)
 # La clé idBV_miomFormat est construite partout de la même façon : 
 # code département (2) + code commune (3) + "_" + code BV (4), ex. "13055_0101".
 
-# Fichiers xlsx "résultats par niveau burvot" (municipales 2020, présidentielle 2022)
+# Fichiers xlsx "résultats par niveau burvot" (municipales 2020, présidentielle 2022, législatives 2022)
 # Structure : n_id colonnes d'identification et de résultats globaux, puis des blocs 
 # de taille_bloc colonnes répétés par liste/candidat. Les colonnes d'identification 
 # sont repérées par leur NOM ; les blocs, dont les en-têtes sont dupliqués ou 
 # absents selon le fichier, par leur POSITION (off_etiquette et off_pct : rang, 
-# à partir de 0, de la colonne nuance/nom et de la colonne "% Voix/Exp" dans le bloc).
+# à partir de 0, de la colonne nuance/nom et de la colonne "% Voix/Exp" dans le bloc ; off_nom, 
+# optionnel : rang de la colonne "Nom" du candidat, lue en plus quand elle sert à repérer un parti).
 # Le fichier 2020 a 577 colonnes : on n'en charge que les colonnes utiles 
 # (col_types = "skip" pour les autres), ce qui allège beaucoup la mémoire et évite 
 # que readxl devine mal le type des colonnes de listes à partir des seules premières 
 # lignes (qui n'ont pas autant de listes que Marseille).
-lire_xlsx_burvot = function(fichier, n_id, taille_bloc, off_etiquette, off_pct,
+# Nombre de colonnes d'un xlsx, lu dans la balise <dimension> de la feuille (sans charger 
+# les données). Nécessaire car, avec n_max = 1, readxl ne voit que les colonnes de l'en-tête 
+# et de la première ligne de données : insuffisant quand cette ligne a moins de candidats que 
+# la ligne la plus large (cas des législatives 2022, dont l'en-tête ne nomme que le 1er bloc).
+n_col_xlsx = function(chemin) {
+  feuille = sort(str_subset(unzip(chemin, list = TRUE)$Name, "^xl/worksheets/sheet\\d+\\.xml$"))[1]
+  con = unz(chemin, feuille, open = "rb")
+  on.exit(close(con))
+  debut = rawToChar(readBin(con, "raw", 20000))
+  lettres = str_match(debut, '<dimension ref="[A-Z]+\\d+:([A-Z]+)\\d+"')[, 2]
+  if (is.na(lettres)) return(NA_integer_)
+  as.integer(sum((utf8ToInt(lettres) - 64) * 26^(rev(seq_len(nchar(lettres))) - 1)))
+}
+
+lire_xlsx_burvot = function(fichier, n_id, taille_bloc, off_etiquette, off_pct, off_nom = NULL,
                             dpt = "13", cmn = "055") {
   
   chemin = here("input_data", fichier)
   
-  # Lecture d'une seule ligne pour connaître les en-têtes et le nombre de colonnes
+  # Lecture d'une seule ligne pour connaître les en-têtes
   entetes_all = names(read_xlsx(chemin, n_max = 1, .name_repair = "minimal"))
-  n_col   = length(entetes_all)
-  n_blocs = (n_col - n_id) / taille_bloc
-  stopifnot(n_blocs == round(n_blocs))
-  
   entetes = entetes_all[seq_len(n_id)]
   col_id = function(motif) {
     i = which(str_detect(entetes, regex(motif, ignore_case = TRUE)))
@@ -258,22 +286,48 @@ lire_xlsx_burvot = function(fichier, n_id, taille_bloc, off_etiquette, off_pct,
   c_cmn = col_id("^Code de la commune$")
   c_bv  = col_id("^Code (du )?b\\.? ?vote$")
   c_abs = col_id("^% Abs/Ins$")
+  c_ins = col_id("^Inscrits$")
+  c_vot = col_id("^Votants$")
+  c_exp = col_id("^Exprimés$")
   
-  # Position (dans le fichier) de la colonne étiquette et de la colonne % de chaque bloc
-  debuts     = n_id + taille_bloc * (seq_len(n_blocs) - 1)
-  c_etiq_blocs = debuts + 1 + off_etiquette
-  c_pct_blocs  = debuts + 1 + off_pct
+  # Lecture du fichier pour un nombre total de colonnes donné : seules les colonnes utiles 
+  # sont chargées, les autres sont sautées ("skip").
+  lecture = function(n_col) {
+    n_blocs = (n_col - n_id) / taille_bloc
+    stopifnot(n_blocs == round(n_blocs))
+    
+    # Position (dans le fichier) de la colonne étiquette et de la colonne % de chaque bloc
+    debuts       = n_id + taille_bloc * (seq_len(n_blocs) - 1)
+    c_etiq_blocs = debuts + 1 + off_etiquette
+    c_pct_blocs  = debuts + 1 + off_pct
+    c_nom_blocs  = if (is.null(off_nom)) integer(0) else debuts + 1 + off_nom
+    
+    types = rep("skip", n_col)
+    types[c(c_dpt, c_cmn, c_bv)] = "text"
+    types[c(c_abs, c_ins, c_vot, c_exp)] = "numeric"
+    types[c_etiq_blocs] = "text"
+    types[c_pct_blocs]  = "numeric"
+    types[c_nom_blocs]  = "text"
+    
+    # Seules les colonnes non "skip" sont conservées, dans l'ordre du fichier : 
+    # on retrouve chaque colonne par sa position parmi les colonnes conservées.
+    list(df = read_xlsx(chemin, col_names = FALSE, skip = 1, col_types = types, 
+                        .name_repair = "minimal"),
+         types = types, n_blocs = n_blocs, c_etiq_blocs = c_etiq_blocs, c_pct_blocs = c_pct_blocs,
+         c_nom_blocs = c_nom_blocs)
+  }
   
-  types = rep("skip", n_col)
-  types[c(c_dpt, c_cmn, c_bv)] = "text"
-  types[c_abs] = "numeric"
-  types[c_etiq_blocs] = "text"
-  types[c_pct_blocs]  = "numeric"
-  
-  # Seules les colonnes non "skip" sont conservées, dans l'ordre du fichier : 
-  # on retrouve chaque colonne par sa position parmi les colonnes conservées.
-  df = read_xlsx(chemin, col_names = FALSE, skip = 1, col_types = types, 
-                  .name_repair = "minimal")
+  # Nombre de colonnes : lu dans la feuille (n_col_xlsx). S'il diffère du nombre de colonnes 
+  # réellement utilisées (colonnes vides en fin de feuille), readxl l'indique dans son message 
+  # d'erreur : on relit alors avec ce nombre.
+  n_col = max(length(entetes_all), n_col_xlsx(chemin), na.rm = TRUE)
+  lu = tryCatch(lecture(n_col), error = function(e) {
+    n_reel = as.integer(str_match(conditionMessage(e), "has (\\d+) columns")[, 2])
+    if (is.na(n_reel)) stop(e)
+    lecture(n_reel)
+  })
+  df = lu$df; types = lu$types; n_blocs = lu$n_blocs
+  c_etiq_blocs = lu$c_etiq_blocs; c_pct_blocs = lu$c_pct_blocs; c_nom_blocs = lu$c_nom_blocs
   pos = function(i) match(i, which(types != "skip"))
   
   cles = tibble(
@@ -286,12 +340,16 @@ lire_xlsx_burvot = function(fichier, n_id, taille_bloc, off_etiquette, off_pct,
   ids   = cles$idBV_miomFormat[garde]
   
   abstention = tibble(idBV_miomFormat = ids, 
-                      pct_Abs_in_Ins = df[[pos(c_abs)]][garde])
+                      pct_Abs_in_Ins = df[[pos(c_abs)]][garde],
+                      inscrits = df[[pos(c_ins)]][garde],
+                      votants  = df[[pos(c_vot)]][garde],
+                      exprimes = df[[pos(c_exp)]][garde])
   
   listes = 
     map_dfr(seq_len(n_blocs), function(k) {
       tibble(idBV_miomFormat = ids,
              etiquette = toupper(df[[pos(c_etiq_blocs[k])]][garde]),
+             nom = if (is.null(off_nom)) NA_character_ else toupper(df[[pos(c_nom_blocs[k])]][garde]),
              pct = df[[pos(c_pct_blocs[k])]][garde])
     }) %>% 
     filter(!is.na(etiquette))                   # emplacements vides
@@ -300,37 +358,121 @@ lire_xlsx_burvot = function(fichier, n_id, taille_bloc, off_etiquette, off_pct,
   list(abstention = abstention, listes = listes)
 }
 
-# Fichier csv des municipales 2026 : séparateur ";", tout lu en texte, pourcentages
-# du type "47,77%", colonnes repérées par leur nom ("Nuance liste N", ...). 
-# "Code commune" contient déjà dpt + commune (13055) : on filtre sur le CODE (le 
-# libellé "Marseille" attrape aussi Marseillette, dans l'Aude).
+# Fichiers à colonnes NOMMÉES : municipales 2026 (csv) et législatives 2024 (xlsx). 
+# Mêmes colonnes ("Code commune", "Code BV", "% Abstentions", "% Voix/exprimés N") ; seul 
+# le préfixe de la colonne nuance change : "Nuance liste N" (municipales) ou 
+# "Nuance candidat N" (législatives) ; prefixe_nom ("Nom candidat ") ajoute le nom du candidat. Tout est lu en texte, pourcentages du type 
+# "47,77%". "Code commune" contient déjà dpt + commune (13055) : on filtre sur le CODE 
+# (le libellé "Marseille" attrape aussi Marseillette, dans l'Aude). Pour les xlsx, on 
+# ne charge que les colonnes utiles (cf. lire_xlsx_burvot).
 pct_fr = function(x) as.numeric(str_replace(str_remove(x, "%"), ",", "."))
 
-lire_csv_mun26 = function(fichier, dpt = "13", cmn = "055") {
+lire_colonnes_nommees = function(fichier, prefixe_nuance, prefixe_nom = NULL, dpt = "13", cmn = "055") {
+  
+  chemin  = here("input_data", fichier)
+  est_csv = str_detect(fichier, regex("\\.csv$", ignore_case = TRUE))
+  
+  # Colonnes utiles : identifiants et résultats globaux, puis, pour chaque liste ou candidat, la 
+  # nuance, le % de voix exprimées et (si prefixe_nom est donné) le nom du candidat.
+  cols_globales = c("Code commune", "Code BV", "% Abstentions", "Inscrits", "Votants", "Exprimés")
+  motif_blocs   = paste0("^(", paste(c(prefixe_nuance, "% Voix/exprimés ", prefixe_nom), collapse = "|"), ")")
+  
+  if (est_csv) {
+    df = read_delim(chemin, delim = ";",
+                    col_types = cols(.default = col_character()),
+                    col_select = c(all_of(cols_globales), matches(motif_blocs)))
+  } else {
+    entetes = names(read_xlsx(chemin, n_max = 1, .name_repair = "minimal"))
+    utiles  = replace_na(entetes %in% cols_globales | str_detect(entetes, motif_blocs), FALSE)
+    df = read_xlsx(chemin, col_types = ifelse(utiles, "text", "skip"))
+  }
   
   df = 
-    read_delim(here("input_data", fichier), delim = ";",
-               col_types = cols(.default = col_character()),
-               col_select = c("Code commune", "Code BV", "% Abstentions",
-                              starts_with("Nuance liste "),
-                              starts_with("% Voix/exprimés "))) %>% 
+    df %>% 
+    # codes commune/BV tantôt numériques, tantôt texte selon le tour : on remet les zéros
+    mutate(`Code commune` = str_pad(`Code commune`, width = 5, "left", pad = "0")) %>% 
     filter(`Code commune` == paste0(dpt, cmn)) %>% 
     mutate(idBV_miomFormat = paste0(`Code commune`, "_", 
                                     str_pad(`Code BV`, width = 4, "left", pad = "0")))
   
   abstention = df %>% 
-    transmute(idBV_miomFormat, pct_Abs_in_Ins = pct_fr(`% Abstentions`))
+    transmute(idBV_miomFormat, pct_Abs_in_Ins = pct_fr(`% Abstentions`),
+              inscrits = as.numeric(Inscrits), votants = as.numeric(Votants),
+              exprimes = as.numeric(Exprimés))
+  
+  # Format long : une ligne par BV x liste. On renomme les colonnes de blocs en "Nuance N", "Nom N" 
+  # et "% Voix/exprimés N" pour les empiler d'un coup avec pivot_longer.
+  blocs = df %>% select(idBV_miomFormat, matches(motif_blocs))
+  noms_cols = str_replace(names(blocs), paste0("^", prefixe_nuance), "Nuance ")
+  if (!is.null(prefixe_nom)) noms_cols = str_replace(noms_cols, paste0("^", prefixe_nom), "Nom ")
+  names(blocs) = noms_cols
   
   listes = 
-    df %>% 
-    select(idBV_miomFormat, starts_with("Nuance liste "), starts_with("% Voix/exprimés ")) %>% 
+    blocs %>% 
     pivot_longer(-idBV_miomFormat,
                  names_to = c(".value", "rang"),
-                 names_pattern = "^(Nuance liste|% Voix/exprimés) (\\d+)$") %>% 
-    filter(!is.na(`Nuance liste`)) %>% 
+                 names_pattern = "^(Nuance|Nom|% Voix/exprimés) (\\d+)$") %>% 
+    filter(!is.na(Nuance))
+  if (!"Nom" %in% names(listes)) listes$Nom = NA_character_
+  listes = listes %>% 
     transmute(idBV_miomFormat, 
-              etiquette = `Nuance liste`, 
+              etiquette = toupper(Nuance), 
+              nom = toupper(Nom),
               pct = pct_fr(`% Voix/exprimés`))
+  
+  list(abstention = abstention, listes = listes)
+}
+
+# Fichier csv "résultats par niveau burvot" de la présidentielle 2017 : même structure que les 
+# xlsx de la présidentielle 2022 (n_id colonnes d'identification et de résultats globaux, puis un 
+# bloc de taille_bloc colonnes par candidat), mais en csv : séparateur ";", encodage Windows-1252, 
+# décimales à virgule, et ligne d'en-tête qui ne nomme que le premier bloc de candidats. 
+# Colonnes d'identification repérées par leur NOM (ligne d'en-tête), blocs par leur POSITION. 
+# On ne garde que les lignes de la commune demandée (champ 1 = département, champ 5 = commune) 
+# avant de les analyser.
+lire_csv_burvot = function(fichier, n_id, taille_bloc, off_etiquette, off_pct,
+                           dpt = "13", cmn = "055") {
+  
+  lignes  = read_lines(here("input_data", fichier), locale = locale(encoding = "windows-1252"))
+  entetes = str_split(lignes[1], fixed(";"))[[1]][seq_len(n_id)]
+  col_id = function(motif) {
+    i = which(str_detect(entetes, regex(motif, ignore_case = TRUE)))
+    if (length(i) != 1) stop("Colonne introuvable (ou ambiguë) dans ", fichier, " : ", motif)
+    i
+  }
+  c_dpt = col_id("^Code du département$")
+  c_cmn = col_id("^Code de la commune$")
+  c_bv  = col_id("^Code (du )?b\\.? ?vote$")
+  c_abs = col_id("^% Abs/Ins$")
+  c_ins = col_id("^Inscrits$")
+  c_vot = col_id("^Votants$")
+  c_exp = col_id("^Exprimés$")
+  
+  lignes = lignes[str_detect(lignes, paste0("^", dpt, ";[^;]*;[^;]*;[^;]*;", cmn, ";"))]
+  stopifnot(length(lignes) > 0)
+  df = read_delim(I(lignes), delim = ";", col_names = FALSE, 
+                  col_types = cols(.default = col_character()))
+  
+  # floor() : tolère un éventuel point-virgule final, qui ajouterait une colonne vide
+  n_blocs = floor((ncol(df) - n_id) / taille_bloc)
+  
+  ids = paste0(str_pad(df[[c_dpt]], width = 2, "left", pad = "0"),
+               str_pad(df[[c_cmn]], width = 3, "left", pad = "0"), "_",
+               str_pad(df[[c_bv]],  width = 4, "left", pad = "0"))
+  
+  abstention = tibble(idBV_miomFormat = ids, pct_Abs_in_Ins = pct_fr(df[[c_abs]]),
+                      inscrits = as.numeric(df[[c_ins]]), votants = as.numeric(df[[c_vot]]),
+                      exprimes = as.numeric(df[[c_exp]]))
+
+  listes = 
+    map_dfr(seq_len(n_blocs), function(k) {
+      debut = n_id + taille_bloc * (k - 1)      # dernière colonne avant le bloc k
+      tibble(idBV_miomFormat = ids,
+             etiquette = toupper(df[[debut + 1 + off_etiquette]]),
+             nom = NA_character_,
+             pct = pct_fr(df[[debut + 1 + off_pct]]))
+    }) %>% 
+    filter(!is.na(etiquette), etiquette != "")  # emplacements vides
   
   list(abstention = abstention, listes = listes)
 }
@@ -362,14 +504,15 @@ lire_txt_mun14 = function(fichier, tour = 1, dpt = "13", cmn = "055") {
   
   abstention = 
     df %>% 
-    distinct(idBV_miomFormat, inscrits, votants) %>% 
-    transmute(idBV_miomFormat, 
-              pct_Abs_in_Ins = (inscrits - votants) / inscrits * 100)
-  
+    distinct(idBV_miomFormat, inscrits, votants, exprimes) %>% 
+  transmute(idBV_miomFormat, 
+              pct_Abs_in_Ins = (inscrits - votants) / inscrits * 100,
+              inscrits, votants, exprimes)
   listes = 
     df %>% 
     transmute(idBV_miomFormat, 
               etiquette = toupper(nuance), 
+              nom = NA_character_,
               pct = voix / exprimes * 100)
   
   list(abstention = abstention, listes = listes)
@@ -383,8 +526,9 @@ agrege_scores = function(long, suffixe) {
   if (length(non_classees) > 0) 
     message(suffixe, " - étiquettes non classées : ", paste(non_classees, collapse = ", "))
   
-  # total_lfi vaut NA (et non 0) pour un scrutin sans aucune liste LFI
+  # total_lfi et total_rn valent NA (et non 0) pour un scrutin sans aucune liste de ce parti
   lfi_presente = any(long$est_lfi)
+  rn_presente  = any(long$est_rn)
   
   totaux = 
     long %>% 
@@ -393,9 +537,8 @@ agrege_scores = function(long, suffixe) {
               total_centre = sum(pct[which(bord == "centre")]),
               total_gauche = sum(pct[which(bord == "gauche")]),
               total_lfi    = if (lfi_presente) sum(pct[which(est_lfi)]) else NA_real_,
+              total_rn     = if (rn_presente)  sum(pct[which(est_rn)])  else NA_real_,
               .groups = "drop")
-
-
   
   podium = 
     long %>% 
@@ -419,9 +562,15 @@ traite_election = function(suffixe, format, fichier, dpt = "13", cmn = "055") {
   brut = switch(format,
     mun20  = lire_xlsx_burvot(fichier, n_id = 19, taille_bloc = 9, 
                               off_etiquette = 1, off_pct = 8, dpt = dpt, cmn = cmn),
+    pres17 = lire_csv_burvot(fichier, n_id = 21, taille_bloc = 7, 
+                             off_etiquette = 2, off_pct = 6, dpt = dpt, cmn = cmn),
     pres22 = lire_xlsx_burvot(fichier, n_id = 21, taille_bloc = 7, 
                               off_etiquette = 2, off_pct = 6, dpt = dpt, cmn = cmn),
-    mun26  = lire_csv_mun26(fichier, dpt = dpt, cmn = cmn),
+    leg22  = lire_xlsx_burvot(fichier, n_id = 21, taille_bloc = 8, 
+                              off_etiquette = 4, off_pct = 7, off_nom = 2, dpt = dpt, cmn = cmn),
+    leg24  = lire_colonnes_nommees(fichier, "Nuance candidat ", prefixe_nom = "Nom candidat ", 
+                                   dpt = dpt, cmn = cmn),
+    mun26  = lire_colonnes_nommees(fichier, "Nuance liste ", dpt = dpt, cmn = cmn),
     mun14  = lire_txt_mun14(fichier, dpt = dpt, cmn = cmn),
     stop("Format inconnu : ", format)
   )
@@ -431,23 +580,24 @@ traite_election = function(suffixe, format, fichier, dpt = "13", cmn = "055") {
   
   listes = 
     brut$listes %>% 
-    mutate(bord = if (format == "pres22") classe_candidat(etiquette) else classe_nuance(etiquette),
-         est_lfi = if (format == "pres22") est_lfi_candidat(etiquette) else est_lfi_nuance(etiquette))
+    mutate(bord    = if (format %in% c("pres17", "pres22")) classe_candidat(etiquette) else classe_nuance(etiquette),
+           est_lfi = detecte_lfi(format, etiquette, nom),
+           est_rn  = detecte_rn(format, etiquette))
   
   brut$abstention %>% 
     left_join(agrege_scores(listes, suffixe), by = "idBV_miomFormat") %>% 
     rename_with(~ paste0(.x, "_", suffixe), -idBV_miomFormat)
 }
 
-# 6. Application aux trois scrutins (un peu long : les xlsx font France entière)
+# 6. Application à tous les scrutins (un peu long : les xlsx font France entière)
 resultats = 
   pmap(elections, function(suffixe, format, fichier, ...) traite_election(suffixe, format, fichier)) %>% 
   set_names(elections$suffixe)
 
 # Contrôle : la somme des trois bords doit faire ~100 pour chaque BV
 iwalk(resultats, function(d, s) {
-  gt = d %>% select(matches("^total_(droite|centre|gauche)_")) %>% rowSums() # (sinon total_lfi, déjà compris dans total_gauche, serait compté en double et 
-
+  # LFI et RN sont déjà compris dans les bords : on ne les compte pas en double
+  gt = d %>% select(matches("^total_(droite|centre|gauche)_")) %>% rowSums()
   cat(s, ": somme des bords (min - max) =", round(min(gt, na.rm = TRUE), 2), "-", 
       round(max(gt, na.rm = TRUE), 2), "\n")
 })
@@ -470,18 +620,166 @@ res_bv_mrs =
 unique_BV_res_bv_mrs = res_bv_mrs$idBV_miomFormat %>% unique() %>% length() # 480
 stopifnot(unique_BV_res_bv_mrs == nrow(res_bv_mrs))
 
-# Noms des variables du scrutin de référence, utilisés pour la carte
-abs_ref    = paste0("pct_Abs_in_Ins_", election_ref)
-droite_ref = paste0("total_droite_", election_ref)
-gauche_ref = paste0("total_gauche_", election_ref)
+# Évolution du nombre de votants entre deux scrutins, et sa décomposition.
+# Votants = inscrits x taux de participation, donc, en variations relatives :
+#   (1 + évol. votants) = (1 + évol. inscrits) x (1 + évol. participation)
+# La variation du nombre de votants combine donc celle de la taille de l'électorat 
+# (inscriptions, radiations, redécoupage des BV) et celle du taux de participation.
+evolution_votants = function(res, s_new, s_ref) {
+  I_new = res[[paste0("inscrits_", s_new)]];  V_new = res[[paste0("votants_", s_new)]]
+  I_ref = res[[paste0("inscrits_", s_ref)]];  V_ref = res[[paste0("votants_", s_ref)]]
+  tibble(idBV_miomFormat = res$idBV_miomFormat,
+         evol_votants  = 100 * (V_new / V_ref - 1),                       # % : nombre de votants
+         evol_inscrits = 100 * (I_new / I_ref - 1),                       # % : nombre d'inscrits
+         evol_particip = 100 * ((V_new / I_new) / (V_ref / I_ref) - 1))   # % : taux de participation
+}
+
+# Paires de scrutins comparées (nouveau, référence) : à adapter
+paires_evol = tribble(
+  ~nouveau,     ~reference,
+  "mun1_2026",  "mun1_2020",
+  "mun1_2026",  "mun1_2014"
+)
+
+evol_votants_bv = 
+  pmap(paires_evol, function(nouveau, reference) {
+    evolution_votants(res_bv_mrs, nouveau, reference) %>% 
+      rename_with(~ paste0(.x, "_", nouveau, "_vs_", reference), -idBV_miomFormat)
+  }) %>% 
+  reduce(left_join, by = "idBV_miomFormat")
+
+res_bv_mrs = left_join(res_bv_mrs, evol_votants_bv, by = "idBV_miomFormat")
+# Variables créées : evol_votants_mun1_2026_vs_mun1_2020, evol_inscrits_..., evol_particip_..., etc.
+
+# Notations (par BV) : E = voix exprimées, p = part de la famille (% des exprimés), 
+# I = inscrits, V = votants. Voix de la famille = p x E / 100.
+# Identité comptable : p_nouveau x E_nouveau = p_ref x E_ref + p_marginale x (E_nouveau - E_ref)
+# => p_marginale = (p_nouveau x E_nouveau - p_ref x E_ref) / (E_nouveau - E_ref)
+# Hypothèse : les électeurs du scrutin de référence ont voté pareil au scrutin nouveau ; toute 
+# l'évolution est alors portée par les voix exprimées supplémentaires.
+part_marginale = function(res, s_new, s_ref, part = "gauche", seuil_hausse = 0.05) {
+  p_new = res[[paste0("total_", part, "_", s_new)]];  p_ref = res[[paste0("total_", part, "_", s_ref)]]
+  E_new = res[[paste0("exprimes_", s_new)]];          E_ref = res[[paste0("exprimes_", s_ref)]]
+  I_new = res[[paste0("inscrits_", s_new)]];          V_new = res[[paste0("votants_", s_new)]]
+  
+  dE = E_new - E_ref
+  p_marg = (p_new * E_new - p_ref * E_ref) / dE
+  
+  # Le calcul n'a de sens que si : (1) la famille a eu des candidats aux deux scrutins (une part nulle 
+  # signale l'absence de candidat dans la circonscription, ex. LFI quand l'investiture revient à un 
+  # allié), (2) les voix exprimées augmentent nettement (ici d'au moins 5 %), (3) la part obtenue 
+  # est un pourcentage plausible (entre 0 et 100).
+  statut = case_when(is.na(p_marg)                      ~ NA_character_,
+                     p_new == 0 | p_ref == 0            ~ "sans candidat",
+                     dE <= seuil_hausse * E_ref         ~ "non défini",
+                     p_marg < 0 | p_marg > 100          ~ "hors bornes",
+                     TRUE                               ~ "ok")
+  ok = !is.na(statut) & statut == "ok"
+  
+  # Scénario : les abstentionnistes restants du scrutin nouveau votent comme les nouveaux votants.
+  # Voix exprimées correspondantes : abstentionnistes x taux exprimés/votants du scrutin nouveau.
+  exprimes_potentiels = (I_new - V_new) * (E_new / V_new)
+  
+  tibble(idBV_miomFormat = res$idBV_miomFormat,
+         statut         = statut,
+         part_nouveaux  = if_else(ok, p_marg, NA_real_),                                # % des voix exprimées supplémentaires
+         potentiel_voix = if_else(ok, exprimes_potentiels * p_marg / 100, NA_real_),    # voix de la famille
+         solde_net_voix = if_else(ok, exprimes_potentiels * (2 * p_marg / 100 - 1), NA_real_))  # voix de la famille - voix des autres
+}
+
+# Couple de scrutins pour les nouvelles voix et la contribution potentielle : T1 des législatives 2022 
+# et 2024 (l'abstention baisse partout, donc les voix exprimées augmentent). Familles : "gauche", 
+# "lfi" et "rn". La famille doit être identifiable aux deux scrutins (cf. detecte_lfi, detecte_rn).
+couple_marg = c(nouveau = "leg1_2024", reference = "leg1_2022")
+paires_marg = tibble(nouveau = couple_marg[["nouveau"]], reference = couple_marg[["reference"]],
+                     part = c("gauche", "lfi", "rn"))
+
+# Suffixe des variables créées pour une famille donnée, ex. "gauche_leg1_2024_vs_leg1_2022"
+sfx_marg = function(part) paste0(part, "_", couple_marg[["nouveau"]], "_vs_", couple_marg[["reference"]])
+
+marg_bv = 
+  pmap(paires_marg, function(nouveau, reference, part) {
+    part_marginale(res_bv_mrs, nouveau, reference, part) %>% 
+      rename_with(~ paste0(.x, "_", part, "_", nouveau, "_vs_", reference), -idBV_miomFormat)
+  }) %>% 
+  reduce(left_join, by = "idBV_miomFormat")
+
+res_bv_mrs = left_join(res_bv_mrs, marg_bv, by = "idBV_miomFormat")
+# Variables créées, par exemple : part_nouveaux_gauche_leg1_2024_vs_leg1_2022, statut_..., 
+# potentiel_voix_..., solde_net_voix_...
+
+# (Optionnel) Classement des BV par contribution potentielle de la gauche : où la mobilisation des 
+# abstentionnistes restants rapporterait le plus de voix nettes
+classement_marg = 
+  res_bv_mrs %>% 
+  transmute(idBV_miomFormat,
+            abstentionnistes_restants = .data[[paste0("inscrits_", couple_marg[["nouveau"]])]] - 
+                                        .data[[paste0("votants_", couple_marg[["nouveau"]])]],
+            part_nouveaux  = .data[[paste0("part_nouveaux_", sfx_marg("gauche"))]],
+            solde_net_voix = .data[[paste0("solde_net_voix_", sfx_marg("gauche"))]]) %>% 
+  arrange(desc(solde_net_voix))
+# head(classement_marg, 20)
+
+# Nom de la variable d'abstention du scrutin de référence (utilisé dans le chunk de jointure aux contours)
+abs_ref = paste0("pct_Abs_in_Ins_", election_ref)
 
 # Moyenne de l'abstention sur les scrutins
 res_bv_mrs = 
   res_bv_mrs %>% 
-  mutate(pct_Abs_in_Ins_avg_toutes = rowMeans(across(all_of(paste0("pct_Abs_in_Ins_", elections$suffixe))), 
-                                              na.rm = TRUE), 
-         diff_pct_Abs_2026from2014 = pct_Abs_in_Ins_mun1_2026 - pct_Abs_in_Ins_mun1_2014)
+  # moyenne sur les premiers tours uniquement (suffixes du type "xxx1_aaaa") : les T2 des 
+  # législatives manquent pour une partie des BV et en changeraient le sens
+  mutate(pct_Abs_in_Ins_avg_toutes = rowMeans(across(all_of(paste0("pct_Abs_in_Ins_", 
+                                                                   str_subset(elections$suffixe, "1_")))), 
+                                              na.rm = TRUE))
+```
 
+
+## Lien entre abstention et vote de gauche
+
+Les profils croisent le sens d'évolution de l'abstention et celui du score de la gauche entre deux scrutins (présidentielles 2017 et 2022, législatives 2022 et 2024). Ils sont déduits de variations agrégées par bureau de vote : ils ne disent pas si ce sont les mêmes électeurs qui se sont mobilisés ou abstenus. 
+
+```{r variables-derivees, include = FALSE}
+# ==============================================================================
+# VARIABLES DÉRIVÉES : évolutions de l'abstention et du vote de gauche, et profils
+# Convention : évolution = valeur du scrutin le plus récent - valeur du scrutin le plus ancien, en points 
+# de pourcentage ; pour l'abstention, une valeur négative = une baisse. 
+# Noms : evol_<variable>_<aabb>, où aa = année du scrutin ancien et bb = année du scrutin récent.
+# ==============================================================================
+res_bv_mrs = 
+  res_bv_mrs %>% 
+  mutate(
+    evol_abs_1426    = pct_Abs_in_Ins_mun1_2026  - pct_Abs_in_Ins_mun1_2014,
+    evol_abs_2026    = pct_Abs_in_Ins_mun1_2026  - pct_Abs_in_Ins_mun1_2020,
+    evol_abs_1722    = pct_Abs_in_Ins_pres1_2022 - pct_Abs_in_Ins_pres1_2017,
+    evol_abs_2224    = pct_Abs_in_Ins_leg1_2024  - pct_Abs_in_Ins_leg1_2022,
+    
+    evol_gauche_1722 = total_gauche_pres1_2022 - total_gauche_pres1_2017,
+    evol_gauche_2224 = total_gauche_leg1_2024  - total_gauche_leg1_2022
+  )
+
+# Profils : croisement du sens d'évolution de l'abstention et de celui du score de la gauche
+lab_profil = c("gauche s'est mobilisé (baisse de l'abstention, avancée de la gauche)", 
+               "gauche s'est abstenu (hausse de l'abstention, recul de la gauche)", 
+               "droite s'est abstenu (hausse de l'abstention, avancée de la gauche)", 
+               "droite s'est mobilisé (baisse de l'abstention, recul de la gauche)")
+
+res_bv_mrs = 
+  res_bv_mrs %>% 
+  mutate(
+    profil_1722 = factor(
+      case_when(evol_abs_1722 <= 0 & evol_gauche_1722 >= 0 ~ lab_profil[1],
+                evol_abs_1722 >  0 & evol_gauche_1722 <  0 ~ lab_profil[2],
+                evol_abs_1722 >  0 & evol_gauche_1722 >= 0 ~ lab_profil[3],
+                evol_abs_1722 <= 0 & evol_gauche_1722 <  0 ~ lab_profil[4]),
+      levels = lab_profil),
+    
+    profil_2224 = factor(
+      case_when(evol_abs_2224 <= 0 & evol_gauche_2224 >= 0 ~ lab_profil[1],
+                evol_abs_2224 >  0 & evol_gauche_2224 <  0 ~ lab_profil[2],
+                evol_abs_2224 >  0 & evol_gauche_2224 >= 0 ~ lab_profil[3],
+                evol_abs_2224 <= 0 & evol_gauche_2224 <  0 ~ lab_profil[4]),
+      levels = lab_profil)
+  )
 ```
 
 # Methode pour joindre les contours et les résultats des élections par bureau de vote
@@ -525,16 +823,18 @@ res_eq =
 # (ce sont les clés BV de la municipale 2020, scrutin de référence `election_ref`, qui servent 
 # à la jointure avec les contours : cf. chunk "RÉSULTATS ÉLECTORAUX PAR BV")
 # (contours has 476 rows, so 2 instances less)
+# Colonnes de résultats conservées pour la carte (préfixes des variables créées dans le pipeline) 
+cols_resultats = "^(id_brut_|pct_|total_|podium_|inscrits_|votants_|evol_|profil_|statut_|part_nouveaux_|potentiel_|solde_net_)"
+
 fin = 
   inner_join(contours_mrs, 
-            res_eq %>% select(adresseBV, idBV_miomFormat, 
-                              contains("id_brut_") | contains("Abs") | contains("pct") | contains("total_") | contains("podium")),
+            res_eq %>% select(adresseBV, idBV_miomFormat, matches(cols_resultats)),
             by = join_by(codeBureauVote == idBV_miomFormat))
 
 # Check that we get the same matches based on a merge in the other key
 test = 
    inner_join(contours_mrs, 
-             res_eq %>% select(adresseBV, idBV_miomFormat, contains("id_brut_") | contains("Abs") | contains("pct")), 
+             res_eq %>% select(adresseBV, idBV_miomFormat, matches("^(id_brut_|pct_)")), 
              by = join_by(id_bv == id_brut_insee))
 
 stopifnot(all.equal(
@@ -555,9 +855,18 @@ de vote" proposée par l'Insee et l'Etalab et la documentation associée (dictio
 
 
 # Carte de l'abstention et résultats électoraux par bureau de vote à Marseille
-```{r}
+```{r carte}
+# ==============================================================================
+# CARTE : label au clic, couches commutables, légendes
+# Chaque couche est décrite par une liste (id, grp, cat, pal, titre, na_label) créée par un constructeur 
+# couche_*() ; la liste `couches` fixe l'ordre des boutons et alimente la carte, les légendes et le script 
+# JavaScript. Conventions de noms : brk_* (bornes de classes), lab_* (libellés), col_* (couleurs), 
+# grp_* (libellé du bouton), classe CSS de légende "leg-<id>" ; pour une couche, cat = variable catégorielle 
+# représentée et pal = palette associée.
+# ==============================================================================
+
 # ------------------------------------------------------------------------------
-# Préparation du Label html à renvoyer au clique sur la carte
+# 1. Label affiché au clic sur un bureau de vote
 # ------------------------------------------------------------------------------
 fn_format = function(var){ifelse(
               is.na(var),
@@ -565,20 +874,13 @@ fn_format = function(var){ifelse(
               paste0(formatC(var, format = "f", digits = 1, big.mark = " "), " %")
             )}
 
-# Scrutins affichés dans le label
-elec_pres   = "pres1_2022"   # présidentielle : abstention + bords + podium
-elec_mun    = "mun1_2026"    # municipales : abstention + évolution
-elec_compar = "mun1_2014"    # scrutin de comparaison pour l'évolution de l'abstention
-lib = function(s) elections$libelle[elections$suffixe == s]
+lib   = function(s) elections$libelle[elections$suffixe == s]   # libellé d'un scrutin
+annee = function(s) sub("^.*_", "", s)                          # année d'un scrutin : "leg1_2024" -> "2024"
 
-# Évolution en points de pourcentage, avec une flèche (▲ hausse, ▼ baisse)
-fmt_evol = function(actuel, ref) {
-  delta  = round(actuel - ref, 1)               # le signe se lit sur la valeur arrondie
-  fleche = case_when(delta > 0 ~ "▲", delta < 0 ~ "▼", TRUE ~ "=")
-  ifelse(is.na(delta),
-         "(pas de résultat en 2014)",
-         paste0("(", fleche, " ", formatC(abs(delta), format = "f", digits = 1), " pt p/r 2014)"))
-}
+# Scrutins affichés dans le label
+elec_pres = "pres1_2022"   # présidentielle : abstention + bords + podium
+elec_leg  = "leg1_2024"    # législatives : abstention
+elec_mun  = "mun1_2026"    # municipales : abstention
 
 fin$label_html <- 
   paste0(
@@ -591,11 +893,10 @@ fin$label_html <-
   
   "<strong>Abstention</strong><br/>",
   lib(elec_pres), " : ", fn_format(fin[[paste0("pct_Abs_in_Ins_", elec_pres)]]), "<br/>",
-  lib(elec_mun),  " : ", fn_format(fin[[paste0("pct_Abs_in_Ins_", elec_mun)]]), " ",
-  fmt_evol(fin[[paste0("pct_Abs_in_Ins_", elec_mun)]], 
-           fin[[paste0("pct_Abs_in_Ins_", elec_compar)]]), "<br/><br/>",
+  lib(elec_leg),  " : ", fn_format(fin[[paste0("pct_Abs_in_Ins_", elec_leg)]]), "<br/>",
+  lib(elec_mun),  " : ", fn_format(fin[[paste0("pct_Abs_in_Ins_", elec_mun)]]), "<br/><br/>",
   
-  "<strong>Répartition des voix exprimées et top 3 candidats à la présidentielle 2022 :</strong><br/>",
+  "<strong>Répartition et top 3, présidentielle 2022 :</strong><br/>",
   "Gauche : ",             fn_format(fin[[paste0("total_gauche_", elec_pres)]]),
   "   Centre & divers : ", fn_format(fin[[paste0("total_centre_", elec_pres)]]),
   "   Droite : ",          fn_format(fin[[paste0("total_droite_", elec_pres)]]), "<br/>",
@@ -606,79 +907,218 @@ fin$label_html <-
 
 
 # ------------------------------------------------------------------------------
-# Trois couches commutables : variable, catégories et palette de chacune
+# 2. Constantes communes aux couches
 # ------------------------------------------------------------------------------
-
 # Palette colRoz (5 couleurs), triée clair -> foncé quel que soit l'ordre renvoyé par le paquet
-pal_cols = substr(as.character(paletteer_d("colRoz::v_acanthurus")), 1, 7)   # retire un éventuel canal alpha
-lum      = colSums(col2rgb(pal_cols) * c(0.299, 0.587, 0.114))
-pal_cols = pal_cols[order(lum, decreasing = TRUE)]
+col_colroz = substr(as.character(paletteer_d("colRoz::v_acanthurus")), 1, 7)   # retire un éventuel canal alpha
+lum        = colSums(col2rgb(col_colroz) * c(0.299, 0.587, 0.114))
+col_colroz = col_colroz[order(lum, decreasing = TRUE)]
 
 # Nice sequential palettes: 
 # colRoz::v_acanthurus
 # MexBrewer::Naturaleza
 # calecopal::desert - trop militaire
 
-# Quintiles d'une variable (calculés sur les BV cartographiés) + palette associée
-make_quintiles = function(vals) {
-  breaks  = quantile(vals, probs = seq(0, 1, 0.2), na.rm = TRUE) %>% unique()  # 6 cut points
-  n_class = length(breaks) - 1
-  labs = paste0("Q", seq_len(n_class), " (",
-                formatC(head(breaks, -1), format = "f", digits = 1), " – ",
-                formatC(tail(breaks, -1), format = "f", digits = 1), " %)")
-  f = cut(vals, breaks = breaks, labels = labs, include.lowest = TRUE)
-  list(f = f,
-       pal = colorFactor(palette = pal_cols[seq_len(n_class)], domain = f, na.color = "transparent"))
+col_gris       = "#BDBDBD"
+lab_non_interp = "non interprétable" #  (exprimés en hausse < 5 %, part hors 0-100 % ou pas de candidat)
+
+# Libellés des familles politiques, pour les titres et les boutons
+de_famille   = c(gauche = "de la gauche", lfi = "de LFI", rn = "du RN")
+pour_famille = c(gauche = "pour la gauche", lfi = "pour LFI", rn = "pour le RN")
+
+
+# ------------------------------------------------------------------------------
+# 3. Constructeurs de couches
+# ------------------------------------------------------------------------------
+# Variable continue découpée en classes (brk, lab) avec une palette (col : une couleur par classe). 
+# Si `statut` est fourni (mesures des nouvelles voix), les BV dont le statut n'est pas "ok" passent 
+# dans une classe grise supplémentaire "non interprétable".
+couche_classes = function(id, grp, valeurs, brk, lab, col, titre, statut = NULL, na_label = "NA") {
+  cl = cut(valeurs, breaks = brk, labels = lab, include.lowest = TRUE)
+  if (!is.null(statut)) {
+    cl = factor(cl, levels = c(lab, lab_non_interp))
+    cl[!is.na(statut) & statut != "ok"] = lab_non_interp
+    col = c(col, col_gris)
+  }
+  list(id = id, grp = grp, cat = cl, titre = titre, na_label = na_label,
+       pal = colorFactor(palette = col, domain = cl, na.color = "transparent"))
 }
 
-# Couche 1 : abstention au T1 des municipales 20206
-q1  = make_quintiles(fin[["pct_Abs_in_Ins_mun1_2026"]])
-# Couche 2 : abstention au T1 de la présidentielle 2022 (quintiles propres à ce scrutin)
-q2 = make_quintiles(fin[["pct_Abs_in_Ins_pres1_2022"]])
+# Niveau d'une variable, en quintiles calculés sur les BV cartographiés (palette colRoz)
+couche_quintiles = function(id, grp, valeurs, titre) {
+  brk = unique(quantile(valeurs, probs = seq(0, 1, 0.2), na.rm = TRUE))   # 6 bornes
+  n   = length(brk) - 1
+  lab = paste0("Q", seq_len(n), " (",
+               formatC(head(brk, -1), format = "f", digits = 1), " – ",
+               formatC(tail(brk, -1), format = "f", digits = 1), " %)")
+  couche_classes(id, grp, valeurs, brk, lab, col_colroz[seq_len(n)], titre)
+}
 
-# Couche 3 : évolution de l'abstention, T1 municipales 2014 -> 2026, en points de pourcentage.
-# La variable est signée (baisse / hausse) : on utilise des classes fixes centrées sur 0 
-# et une palette divergente (violet = baisse, orange = hausse, blanc = stable), plutôt 
-# que des quintiles dont les bornes ne tomberaient pas sur 0.
-fin$delta_abs = fin[[paste0("pct_Abs_in_Ins_", elec_mun)]] - fin[[paste0("pct_Abs_in_Ins_", elec_compar)]]
-lab_delta = c("baisse de plus de 10 pt", "baisse de 5 à 10 pt", "baisse de 2 à 5 pt", "stable (± 2 pt)",
-              "hausse de 2 à 5 pt", "hausse de 5 à 10 pt", "hausse de plus de 10 pt")
-delta_cat = cut(fin$delta_abs, breaks = c(-Inf, -10, -5, -2, 2, 5, 10, Inf), 
-                labels = lab_delta, include.lowest = TRUE)
-pal_delta = colorFactor(palette = rev(RColorBrewer::brewer.pal(7, "RdYlBu")), 
-                        domain = delta_cat, na.color = "transparent")
+# Variable déjà catégorielle (profils), avec sa palette
+couche_profil = function(id, grp, profil, col, titre, na_label = "pas de résultat") {
+  list(id = id, grp = grp, cat = profil, titre = titre, na_label = na_label,
+       pal = colorFactor(palette = col, domain = profil, na.color = "transparent"))
+}
 
-# Couche 4 : rythme de la baisse de l'abstention, T1 municipales 2020 -> 2026, relatif à la 
-# baisse moyenne. L'abstention baisse dans tous les BV : on ne représente donc pas la baisse 
-# elle-même, mais son rapport à la baisse moyenne (ratio = baisse du BV / baisse moyenne des BV).
-#   ratio = 1 : même rythme que la moyenne ; 2 : baisse 2 fois plus rapide ; 0.5 : 2 fois plus lente.
-# Moyenne simple sur les BV cartographiés (non pondérée par le nombre d'inscrits). 
-# Classes symétriques sur une échelle multiplicative (0.5 <-> 2, 0.75 <-> 1.33, 0.9 <-> 1.1),
-# palette divergente différente de la couche 3 (rose = plus lente, vert = plus rapide).
-fin$baisse_2020_2026 = fin[["pct_Abs_in_Ins_mun1_2020"]] - fin[["pct_Abs_in_Ins_mun1_2026"]]
-if (any(fin$baisse_2020_2026 <= 0, na.rm = TRUE)) 
+
+# ------------------------------------------------------------------------------
+# 4. Les 13 couches (l'ordre de la liste est l'ordre des boutons)
+# ------------------------------------------------------------------------------
+## Niveaux d'abstention (couches 1 et 2) -------------------------------------------
+# Évolutions de l'abstention (couches 3 à 6) --------------------------------------
+# - 3 (2014 -> 2026) : variable signée, classes fixes centrées sur 0 et palette divergente (RdYlBu), 
+#   plutôt que des quintiles dont les bornes ne tomberaient pas sur 0.
+brk_evol_mun1426 = c(-Inf, -10, -5, -2, 2, 5, 10, Inf)
+lab_evol_mun1426 = c("baisse de plus de 10 pt", "baisse de 5 à 10 pt", "baisse de 2 à 5 pt", "stable (± 2 pt)",
+                     "hausse de 2 à 5 pt", "hausse de 5 à 10 pt", "hausse de plus de 10 pt")
+col_evol_mun1426 = rev(RColorBrewer::brewer.pal(7, "RdYlBu"))
+
+# - 4 (2020 -> 2026) : l'abstention baisse dans tous les BV : on représente le rythme de la baisse relatif 
+#   à la baisse moyenne (ratio = baisse du BV / baisse moyenne des BV ; 1 = même rythme que la moyenne, 
+#   2 = baisse 2 fois plus rapide, 0.5 = 2 fois plus lente). Moyenne simple sur les BV cartographiés (non 
+#   pondérée par le nombre d'inscrits). Palette divergente PiYG (rose = plus lente, vert = plus rapide).
+baisse_moy_mun2026 = mean(-fin$evol_abs_2026, na.rm = TRUE)
+if (any(fin$evol_abs_2026 >= 0, na.rm = TRUE)) 
   warning("Des BV n'ont pas de baisse d'abstention entre 2020 et 2026 : le ratio n'a plus le même sens pour eux.")
-baisse_moy = mean(fin$baisse_2020_2026, na.rm = TRUE)
-fin$ratio_baisse = fin$baisse_2020_2026 / baisse_moy
-lab_ratio = c("baisse 3 fois plus lente que la moyenne, ou plus", "baisse 2 à 3 fois plus lente", 
-              "baisse 1,1 à 2 fois plus lente", "baisse proche de la moyenne (± 10 %)",
-              "baisse 1,1 à 1,5 fois plus rapide", "baisse 1,5 à 2 fois plus rapide",
-              "baisse 2 fois plus rapide que la moyenne, ou plus")
-ratio_cat = cut(fin$ratio_baisse, breaks = c(-Inf, 0.33, 0.5, 0.9, 1.1, 1.5, 2, Inf), 
-                labels = lab_ratio, include.lowest = TRUE)
-pal_ratio = colorFactor(palette = RColorBrewer::brewer.pal(7, "PiYG"), 
-                        domain = ratio_cat, na.color = "transparent")
+brk_evol_mun2026 = c(-Inf, 0.33, 0.5, 0.9, 1.1, 1.5, 2, Inf)
+lab_evol_mun2026 = c("baisse 3 fois plus lente que la moyenne, ou plus", "baisse 2 à 3 fois plus lente", 
+                     "baisse 1,1 à 2 fois plus lente", "baisse proche de la moyenne (± 10 %)",
+                     "baisse 1,1 à 1,5 fois plus rapide", "baisse 1,5 à 2 fois plus rapide",
+                     "baisse 2 fois plus rapide que la moyenne, ou plus")
+col_evol_mun2026 = RColorBrewer::brewer.pal(7, "PiYG")
 
-# Noms des couches (= libellés des boutons)
-grp1  = lib("mun1_2026")
-grp2  = lib("pres1_2022")
-grp_delta = "Évolution 2014 → 2026"
-grp_ratio = "Évolution 2020 → 2026" # relative à la baisse moyenne
+# - 5 (2017 -> 2022) : l'abstention augmente dans presque tous les BV (476 sur 480) : palette séquentielle 
+#   en teintes chaudes (OrRd), la première classe regroupant les hausses de moins de 2 points et les rares BV en baisse.
+brk_evol_pres1722 = c(-Inf, 2, 4, 6, 8, 10, Inf)
+lab_evol_pres1722 = c("hausse de moins de 2 pt (ou baisse)", "hausse de 2 à 4 pt", "hausse de 4 à 6 pt", 
+                      "hausse de 6 à 8 pt", "hausse de 8 à 10 pt", "hausse de plus de 10 pt")
+col_evol_pres1722 = RColorBrewer::brewer.pal(8, "OrRd")[3:8]    # les deux teintes les plus claires sont écartées (trop pâles sur le fond gris)
+
+# - 6 (2022 -> 2024) : recul de l'abstention en points d'inscrits (abstention 2022 - abstention 2024), 
+#   palette séquentielle GnBu (clair = recul modéré, foncé = fort recul).
+brk_evol_leg2224 = c(-Inf, 18, 20, 22, 24, 26, 28, Inf)
+lab_evol_leg2224 = c("moins de 18 pt", "18 à 20 pt", "20 à 22 pt", "22 à 24 pt", "24 à 26 pt", "26 à 28 pt", "plus de 28 pt")
+col_evol_leg2224 = RColorBrewer::brewer.pal(9, "GnBu")[3:9]
+if (any(fin$evol_abs_2224 >= 0, na.rm = TRUE)) 
+  warning("Des BV n'ont pas de baisse d'abstention entre les deux législatives : la couche suppose une baisse partout.")
+
+## Profils d'évolution de l'abstention et du score de la gauche (couches 7 et 8) ---------
+col_profil = c("#FAE093FF", "#D04E59FF", "#CABEE9FF", "#2F3D70FF")
+
+## Nouvelles voix et contribution potentielle (couches 9 à 13), législatives T1 2022 -> 2024 ---------
+# Part de la famille parmi les voix exprimées supplémentaires : classes de 10 points, palette divergente 
+# centrée sur 50 % (orange = moins d'1 nouvelle voix sur 2 pour la famille, violet = plus d'1 sur 2) ; 
+# la rupture de couleur est à 50 %, et le détail est fin sous 50 % (premier tour : le seuil n'est pas 50 %).
+brk_part = c(-Inf, 20, 30, 40, 50, 60, 70, 80, Inf)
+lab_part = c("moins de 20 %", "20 à 30 %", "30 à 40 %", "40 à 50 %", "50 à 60 %", "60 à 70 %", "70 à 80 %", "plus de 80 %")
+# col_part = c("#B35806", "#E08214", "#FDB863", "#FEE0B6", "#D8DAEB", "#B2ABD2", "#8073AC", "#542788")
+col_gd = c("#2700D1FF", "#8888FFFF", "#D5D5FFFF", "#FFC0E5FF", "#FF8989FF", "#FF7080FF", "#EF4040FF", "#D60C00FF")
+col_rn = c("white", "#D5D5FFFF", "#C7C1FFFF", "#8888FFFF", "#6B58EFFF", "#2700D1FF", "#4500ADFF", "#2F3536FF")
+
+# Solde net potentiel = voix de la famille moins voix des autres familles si les abstentionnistes restants 
+# votaient comme les nouveaux votants (scénario, en nombre de voix par BV) : c'est la couche qui identifie où 
+# la mobilisation rapporterait le plus de voix nettes (part ET volume d'abstentionnistes restants).
+brk_solde = c(-Inf, -100, 0, 100, 250, 500, Inf)
+lab_solde = c("déficit de plus de 100 voix", "déficit de 0 à 100 voix", "excédent de 0 à 100 voix", 
+              "excédent de 100 à 250 voix", "excédent de 250 à 500 voix", "excédent de plus de 500 voix")
+# col_solde = c("#B35806", "#F1A340", "#D8DAEB", "#B2ABD2", "#8073AC", "#542788")
+col_solde = c("#2700D1FF", "#6B58EFFF", "#D5D5FFFF",  "#FFC0E5FF", "#FF8989FF", "#EF4040FF", "#D60C00FF")
+
+# "#4500ADFF", "#2700D1FF", "#6B58EFFF", "#8888FFFF", "#C7C1FFFF", "#D5D5FFFF", "#FFC0E5FF", "#FF8989FF", "#FF7080FF", "#FF5A5AFF", "#EF4040FF", "#D60C00FF"
+periode_marg = "2022 → 2024" # paste0(lib(couple_marg[["reference"]]), " → ", lib(couple_marg[["nouveau"]]))   # pour les boutons
+vs_marg      = paste0(lib(couple_marg[["nouveau"]]), " vs. ", lib(couple_marg[["reference"]]))  # pour les légendes
+
+couche_part = function(part) {
+  if(part=="rn") {col_part = col_rn} 
+  if(part=="gauche"){col_part = col_gd}
+  couche_classes(
+    id = paste0("part_", part), 
+    grp = paste0("Score ", de_famille[[part]], "chez les nouveaux votants ", periode_marg),
+    valeurs = fin[[paste0("part_nouveaux_", sfx_marg(part))]],
+    brk = brk_part, lab = lab_part, col = col_part,
+    statut = fin[[paste0("statut_", sfx_marg(part))]],
+    titre = paste0("Part estimée ", de_famille[[part]], " parmi les nouvelles voix (", vs_marg,") :"))
+}
+
+couche_solde = function(part) {
+  couche_classes(
+    id = paste0("solde_", part), 
+    grp = paste0("Réservoirs de voix ", pour_famille[[part]]),
+    valeurs = fin[[paste0("solde_net_voix_", sfx_marg(part))]],
+    brk = brk_solde, lab = lab_solde, col = col_solde,
+    statut = fin[[paste0("statut_", sfx_marg(part))]],
+    titre = paste0("Si les abstentionnistes restants de ", lib(couple_marg[["nouveau"]]), 
+                   " votaient comme les nouveaux votants, le supplément de voix pour la gauche moins celui pour les autres familles serait :")) # voix ", de_famille[[part]], " moins voix des autres familles 
+}
+
+couches = list(
+  
+  # 1 et 2 : niveaux d'abstention
+  abs_mun26 = couche_quintiles(
+    "abs_mun26", lib("mun1_2026"), fin$pct_Abs_in_Ins_mun1_2026,
+    titre = paste0("Abstention, ", lib("mun1_2026"), "<br/>(quintiles de bureaux de vote)")),
+  
+  abs_pres22 = couche_quintiles(
+    "abs_pres22", lib("pres1_2022"), fin$pct_Abs_in_Ins_pres1_2022,
+    titre = paste0("Abstention, ", lib("pres1_2022"), "<br/>(quintiles de bureaux de vote)")),
+  
+  # 3 à 6 : évolutions de l'abstention
+  # evol_mun1426 = couche_classes(
+  #   "evol_mun1426", "Évolution 2014 → 2026", fin$evol_abs_1426,
+  #   brk_evol_mun1426, lab_evol_mun1426, col_evol_mun1426,
+  #   titre = "Évolution de l'abstention<br/>T1 municipales 2014 → 2026",
+  #   na_label = "pas de résultat en 2014"),
+  
+  evol_mun2026 = couche_classes(
+    "evol_mun2026", "Évolution 2020 → 2026", -fin$evol_abs_2026 / baisse_moy_mun2026,
+    brk_evol_mun2026, lab_evol_mun2026, col_evol_mun2026,
+    titre = paste0(
+      "L'abstention au T1 des municipales 2026 a baissé dans tous les bureaux de vote<br/>",
+      "par rapport au T1 des municipales 2020 (Covid), mais plus ou moins vite.<br/>",
+      "Par rapport à la baisse moyenne (", formatC(baisse_moy_mun2026, format = "f", digits = 1), 
+      " pt) on observe une :")),
+  
+  evol_pres1722 = couche_classes(
+    "evol_pres1722", "Évolution 2017 → 2022", fin$evol_abs_1722,
+    brk_evol_pres1722, lab_evol_pres1722, col_evol_pres1722,
+    titre = paste0(
+      "Évolution de l'abstention entre le ", lib("pres1_2017"), " et le ", lib("pres1_2022"), 
+      ",<br/>en points de pourcentage d'inscrits (abstention 2022 − abstention 2017) :")),
+  
+  evol_leg2224 = couche_classes(
+    "evol_leg2224", "Évolution 2022 → 2024", -fin$evol_abs_2224,
+    brk_evol_leg2224, lab_evol_leg2224, col_evol_leg2224,
+    titre = "Entre le T1 des législatives 2022 et 2024,<br/>l'abstention a <u>baissé</u> de :"),
+  
+  # # 7 et 8 : profils d'évolution de l'abstention et du score de la gauche
+  # profil_pres1722 = couche_profil(
+  #   "profil_pres1722", "Corrélation avec les résultats - présidentielles", fin$profil_1722, col_profil,
+  #   titre = paste0("L'évolution concomitante de l'abstention et du score de la gauche<br/>",
+  #                  "entre les T1 des présidentielles 2017 et 2022 suggère que l'électorat de ")),
+  # 
+  # profil_leg2224 = couche_profil(
+  #   "profil_leg2224", "Corrélation avec les résultats - législatives", fin$profil_2224, col_profil,
+  #   titre = paste0("L'évolution concomitante de l'abstention et du score de la gauche<br/>",
+  #                  "entre les T1 des législatives 2022 et 2024 suggère que l'électorat de ")),
+  
+  # 9 à 11 : part de la famille parmi les nouvelles voix
+  part_gauche = couche_part("gauche"),
+  # part_lfi    = couche_part("lfi"),
+  part_rn     = couche_part("rn"),
+  
+  # 12 et 13 : contribution potentielle (gauche et LFI uniquement)
+  solde_gauche = couche_solde("gauche")
+  # solde_lfi    = couche_solde("lfi")
+)
+
+grp_couches = unname(map_chr(couches, "grp"))                      # libellés des boutons
+css_couches = paste0("leg-", gsub("_", "-", names(couches)))       # classes CSS des légendes
+
 
 # ------------------------------------------------------------------------------
-# Carte leaflet : une couche de polygones par variable, commutées par addLayersControl()
+# 5. Carte leaflet : une couche de polygones par variable, commutées par addLayersControl()
 # ------------------------------------------------------------------------------
-# Les trois couches ont la même géométrie et le même popup, seules les couleurs changent.
+# Toutes les couches ont la même géométrie et le même popup, seules les couleurs changent.
 add_couche = function(map, couleurs, groupe) {
   map %>% 
     addPolygons(
@@ -705,47 +1145,33 @@ add_couche = function(map, couleurs, groupe) {
 
 m <- leaflet(fin) %>%
   # addProviderTiles(providers$OpenStreetMap) %>%  # plain OSM tiles, no key needed
-   addProviderTiles(providers$Esri.WorldGrayCanvas) %>%
-  # Esri WorldGrayCanvas
-  add_couche(q1$pal(q1$f),  grp1) %>%
-  add_couche(q2$pal(q2$f),  grp2) %>%
-  add_couche(pal_delta(delta_cat),  grp_delta) %>%
-  add_couche(pal_ratio(ratio_cat),  grp_ratio) %>%
-  # Une légende par couche ; la classe CSS "leg-*" sert à les afficher/masquer (cf. onRender ci-dessous)
-  addLegend(
-    pal = q1$pal, values = q1$f, opacity = 0.7, position = "bottomleft",
-    title = paste0("Abstention, ", grp1, "<br/>(quintiles de bureaux de vote)"),
-    className = "info legend leg-ref"
-  ) %>%
-  addLegend(
-    pal = q2$pal, values = q2$f, opacity = 0.7, position = "bottomleft",
-    title = paste0("Abstention, ", grp2, "<br/>(quintiles de bureaux de vote)"),
-    className = "info legend leg-pres"
-  ) %>%
-  addLegend(
-    pal = pal_delta, values = delta_cat, opacity = 0.7, position = "bottomleft",
-    title = "Évolution de l'abstention<br/>T1 municipales 2014 → 2026",
-    na.label = "pas de résultat en 2014",
-    className = "info legend leg-delta"
-  ) %>%
-   addLegend(
-    pal = pal_ratio, values = ratio_cat, opacity = 0.7, position = "bottomleft",
-    title = paste0(
-"L'abstention au T1 des municipales 2026 a baissé dans tous les bureaux de vote<br/>par rapport au T1 des municipales 2020 (Covid), mais plus ou moins vite.<br/>Par rapport à la baisse moyenne (", formatC(baisse_moy, format = "f", digits = 1), " pt) on observe une :"),
-    className = "info legend leg-ratio"
-  ) %>%
-  # Boutons radio : une seule couche affichée à la fois (la première est affichée au départ)
+  addProviderTiles(providers$Esri.WorldGrayCanvas)
+
+for (cc in couches) m <- m %>% add_couche(cc$pal(cc$cat), cc$grp)
+
+# Une légende par couche ; la classe CSS "leg-*" sert à les afficher/masquer (cf. onRender ci-dessous)
+for (k in seq_along(couches)) {
+  cc <- couches[[k]]
+  m <- m %>% 
+    addLegend(
+      pal = cc$pal, values = cc$cat, opacity = 0.7, position = "bottomleft",
+      title = cc$titre, na.label = cc$na_label,
+      className = paste("info legend", css_couches[k])
+    )
+}
+
+# Boutons radio : une seule couche affichée à la fois (la première est affichée au départ)
+m <- m %>% 
   addLayersControl(
-    baseGroups = c(grp1, grp2, grp_delta, grp_ratio),
+    baseGroups = grp_couches,
     options = layersControlOptions(collapsed = FALSE),
     position = "bottomleft"
   ) %>%
-  hideGroup(c(grp2, grp_delta, grp_ratio))
+  hideGroup(grp_couches[-1])
 
 # Les légendes ne suivent pas automatiquement les couches : ce petit script JavaScript 
 # (exécuté dans le navigateur, sans serveur) n'affiche que la légende de la couche active.
-legendes = c(setNames("leg-ref", grp1), setNames("leg-pres", grp2),
-             setNames("leg-delta", grp_delta), setNames("leg-ratio", grp_ratio))
+legendes = setNames(css_couches, grp_couches)   # classe CSS de la légende de chaque couche
 
 js_legendes = sprintf("
 function(el, x) {
@@ -786,7 +1212,7 @@ function(el, x) {
   if (window.visualViewport) { window.visualViewport.addEventListener('resize', ajusterHauteur); }
 }",
   jsonlite::toJSON(as.list(legendes), auto_unbox = TRUE),
-  jsonlite::toJSON(grp1, auto_unbox = TRUE)
+  jsonlite::toJSON(grp_couches[1], auto_unbox = TRUE)
 )
 
 m <- m %>% htmlwidgets::onRender(js_legendes)
@@ -832,221 +1258,5 @@ m
 saveWidget(m_titled, file = here("index.html"), selfcontained = TRUE)
 ```
 
-# Lien entre abstention et vote de gauche
-
-```{r}
-# ==============================================================================
-# ABSTENTION ET VOTE EN NIVEAU, T1 MUNICIPALES 2026, PAR BUREAU DE VOTE (BV) DE MARSEILLE
-# Variable de vote au choix (paramètre `vote`) :
-#   "gauche" : part de voix de toute la catégorie "gauche" (nuances_gauche, dont LFI)
-#   "lfi"    : part de voix de la seule liste LFI
-# ==============================================================================
-
-# 1. Données d'analyse ----------------------------------------------------------
-suf_2026 = "mun1_2026"
-
-# Secteurs = mairies d'arrondissements : les 2 premiers chiffres du code BV donnent 
-# l'arrondissement (1 à 16), regroupés par deux en 8 secteurs. 
-# (Mêmes définitions que dans analyse_abstention_gauche.R : à ne garder qu'une fois.)
-arr_vers_secteur = c(1, 2, 2, 3, 3, 4, 1, 4, 5, 5, 6, 6, 7, 7, 8, 8)   # indexé par n° d'arrondissement
-labels_secteurs = c("1er secteur (1er et 7e arr.)",  "2e secteur (2e et 3e arr.)", 
-                    "3e secteur (4e et 5e arr.)",    "4e secteur (6e et 8e arr.)",
-                    "5e secteur (9e et 10e arr.)",   "6e secteur (11e et 12e arr.)",
-                    "7e secteur (13e et 14e arr.)",  "8e secteur (15e et 16e arr.)")
-
-analyse_niv = 
-  res_bv_mrs %>% 
-  transmute(
-    idBV_miomFormat,
-    abs_2026    = .data[[paste0("pct_Abs_in_Ins_", suf_2026)]],   # abstention, % des inscrits
-    gauche_2026 = .data[[paste0("total_gauche_", suf_2026)]],     # part de la catégorie gauche, % des exprimés
-    lfi_2026    = .data[[paste0("total_lfi_", suf_2026)]],        # part de la liste LFI, % des exprimés
-    arrondissement = as.integer(str_sub(sub("^.*_", "", idBV_miomFormat), 1, 2)),
-    secteur = factor(labels_secteurs[arr_vers_secteur[arrondissement]], levels = labels_secteurs)
-  ) %>% 
-  filter(!is.na(abs_2026), !is.na(gauche_2026), !is.na(lfi_2026))
-
-stopifnot(!anyNA(analyse_niv$secteur))
-
-# 2. Paramètre : le vote analysé --------------------------------------------------
-vote_var = c(gauche = "gauche_2026", lfi = "lfi_2026")
-vote_lab = c(gauche = "Part de voix de gauche en 2026\n(% des exprimés)",
-             lfi    = "Part de voix LFI en 2026\n(% des exprimés)")
-vote_nom = c(gauche = "vote de gauche (toutes nuances de gauche)", lfi = "vote LFI")
-lab_abs_2026 = "Abstention au T1 des municipales 2026 (% des inscrits)"
-couleur_fit  = "#BD6E39"                  # colRoz::v_acanthurus
-
-# 3. Graphique ajusté : nuage de points + droite de régression (IC à 95 %) ---------
-scatter_fit_xy = function(df, titre, xlim, ylim, x, y, axes_titres = TRUE, lab_y = NULL) {
-  mod   = lm(reformulate(x, response = y), data = df)
-  stats = sprintf("r = %.2f ; pente = %.2f ; n = %d BV", 
-                  cor(df[[x]], df[[y]]), coef(mod)[2], nrow(df))
-  
-  ggplot(df, aes(x = .data[[x]], y = .data[[y]])) +
-    geom_point(alpha = 0.55, size = 1.8, colour = "grey30") +
-    geom_smooth(method = "lm", formula = y ~ x, se = TRUE, 
-                colour = couleur_fit, fill = couleur_fit, alpha = 0.2) +
-    coord_cartesian(xlim = xlim, ylim = ylim) +
-    labs(title = titre, subtitle = stats,
-         x = if (axes_titres) lab_abs_2026 else NULL, 
-         y = if (axes_titres) lab_y else NULL) +
-    theme_minimal(base_size = 11) +
-    theme(plot.title = element_text(face = "bold", size = 11),
-          plot.subtitle = element_text(size = 9, colour = "grey30"))
-}
-
-resume_xy = function(df, x, y) {
-  mod = lm(reformulate(x, response = y), data = df)
-  tibble(n_BV = nrow(df), r = cor(df[[x]], df[[y]]), pente = coef(mod)[[2]], 
-         r2 = summary(mod)$r.squared)
-}
-
-# 4. Analyse complète pour un vote donné : ensemble, un graphique par secteur, tableau ----
-produit_analyse_niveau = function(vote = c("gauche", "lfi")) {
-  vote = match.arg(vote)
-  x = "abs_2026"
-  y = vote_var[[vote]]
-  
-  # Axes communs à tous les graphiques, pour que les secteurs soient comparables
-  xlim = range(analyse_niv[[x]])
-  ylim = range(analyse_niv[[y]]) + c(-1, 1) * 0.1 * diff(range(analyse_niv[[y]]))
-  
-  # Ensemble de Marseille
-  p_global = scatter_fit_xy(analyse_niv, paste0("Marseille, ", vote_nom[[vote]]), 
-                            xlim, ylim, x, y, lab_y = vote_lab[[vote]])
-  
-  # Un graphique par secteur, assemblés avec ggarrange()
-  plots_secteurs = 
-    analyse_niv %>% 
-    group_split(secteur) %>% 
-    map(~ scatter_fit_xy(.x, as.character(.x$secteur[1]), xlim, ylim, x, y, axes_titres = FALSE))
-  
-  fig_secteurs = 
-    ggarrange(plotlist = plots_secteurs, ncol = 4, nrow = 2) %>% 
-    annotate_figure(top    = text_grob(paste0("Abstention et ", vote_nom[[vote]], ", T1 municipales 2026"), 
-                                       face = "bold", size = 13),
-                    bottom = text_grob(lab_abs_2026, size = 11),
-                    left   = text_grob(vote_lab[[vote]], size = 11, rot = 90))
-  
-  # Tableau récapitulatif : corrélation (r), pente, R² et nombre de BV
-  resume = 
-    bind_rows(
-      resume_xy(analyse_niv, x, y) %>% mutate(secteur = "Marseille (ensemble)", .before = 1),
-      analyse_niv %>% group_by(secteur) %>% group_modify(~ resume_xy(.x, x, y)) %>% ungroup() %>% 
-        mutate(secteur = as.character(secteur))
-    ) %>% 
-    mutate(across(c(r, pente, r2), ~ round(.x, 2)))
-  
-  list(p_global = p_global, fig_secteurs = fig_secteurs, resume = resume)
-}
-
-# 5. Les deux analyses ------------------------------------------------------------
-# Figures par secteur : options de chunk fig.width = 14, fig.height = 7.5
-an_niv_gauche = produit_analyse_niveau("gauche")
-an_niv_lfi    = produit_analyse_niveau("lfi")
-
-an_niv_gauche$p_global ; an_niv_gauche$fig_secteurs ; an_niv_gauche$resume
-an_niv_lfi$p_global    ; an_niv_lfi$fig_secteurs    ; an_niv_lfi$resume
-
-
-
-```
-
-```{r}
-
-# ==============================================================================
-# LIEN ENTRE BAISSE DE L'ABSTENTION ET VARIATION DU VOTE DE GAUCHE
-# T1 municipales 2020 -> T1 municipales 2026, par bureau de vote (BV) de Marseille
-# ==============================================================================
-
-# 1. Données d'analyse ----------------------------------------------------------
-suf_ref = "mun1_2020"
-suf_new = "mun1_2026"
-
-# Secteurs = mairies d'arrondissements de Marseille : 8 secteurs de 2 arrondissements chacun.
-# Pas besoin de shapefile : les deux premiers chiffres du code BV sont le numéro de 
-# l'arrondissement (ex. "13055_0101" -> 01 ; "13055_1417" -> 14). 
-# Seul le regroupement arrondissements -> secteurs est ajouté ici.
-arr_vers_secteur = c(1, 2, 2, 3, 3, 4, 1, 4, 5, 5, 6, 6, 7, 7, 8, 8)   # indexé par n° d'arrondissement (1 à 16)
-labels_secteurs = c("1er secteur (1er et 7e arr.)",  "2e secteur (2e et 3e arr.)", 
-                    "3e secteur (4e et 5e arr.)",    "4e secteur (6e et 8e arr.)",
-                    "5e secteur (9e et 10e arr.)",   "6e secteur (11e et 12e arr.)",
-                    "7e secteur (13e et 14e arr.)",  "8e secteur (15e et 16e arr.)")
-
-analyse = 
-  res_bv_mrs %>% 
-  transmute(
-    idBV_miomFormat,
-    # Baisse de l'abstention en points (positive = l'abstention a baissé)
-    baisse_abs = .data[[paste0("pct_Abs_in_Ins_", suf_ref)]] - .data[[paste0("pct_Abs_in_Ins_", suf_new)]],
-    # Variation de la part des voix exprimées de la catégorie "gauche" (nuances_gauche), en points
-    var_gauche = .data[[paste0("total_gauche_", suf_new)]] - .data[[paste0("total_gauche_", suf_ref)]],
-    arrondissement = as.integer(str_sub(sub("^.*_", "", idBV_miomFormat), 1, 2)),
-    secteur = factor(labels_secteurs[arr_vers_secteur[arrondissement]], levels = labels_secteurs)
-  ) %>% 
-  filter(!is.na(baisse_abs), !is.na(var_gauche))
-
-stopifnot(!anyNA(analyse$secteur))        # tous les BV ont un arrondissement entre 1 et 16
-
-# 2. Graphique ajusté (nuage de points + droite de régression et son IC à 95 %) ----
-lab_x = "Baisse de l'abstention, 2020 → 2026 (points)"
-lab_y = "Variation de la part de voix de gauche,\n2020 → 2026 (points de % des exprimés)"
-couleur_fit = "#BD6E39"                  # colRoz::v_acanthurus
-
-scatter_fit = function(df, titre, xlim, ylim, axes_titres = TRUE) {
-  mod   = lm(var_gauche ~ baisse_abs, data = df)
-  stats = sprintf("pente = %.2f ; R² = %.2f ; n = %d BV", 
-                  coef(mod)[2], summary(mod)$r.squared, nrow(df))
-  
-  ggplot(df, aes(x = baisse_abs, y = var_gauche)) +
-    geom_hline(yintercept = 0, colour = "grey70", linewidth = 0.3) +
-    geom_point(alpha = 0.55, size = 1.8, colour = "grey30") +
-    geom_smooth(method = "lm", formula = y ~ x, se = TRUE, 
-                colour = couleur_fit, fill = couleur_fit, alpha = 0.2) +
-    coord_cartesian(xlim = xlim, ylim = ylim) +
-    labs(title = titre, subtitle = stats,
-         x = if (axes_titres) lab_x else NULL, 
-         y = if (axes_titres) lab_y else NULL) +
-    theme_minimal(base_size = 11) +
-    theme(plot.title = element_text(face = "bold", size = 11),
-          plot.subtitle = element_text(size = 9, colour = "grey30"))
-}
-
-# Axes communs à tous les graphiques, pour que les secteurs soient comparables
-xlim = range(analyse$baisse_abs)
-ylim = range(analyse$var_gauche)
-
-# 3. Ensemble de Marseille -------------------------------------------------------
-p_global = scatter_fit(analyse, "Marseille, ensemble des bureaux de vote", xlim, ylim)
-p_global
-
-# 4. Un graphique par secteur, assemblés avec ggarrange() ------------------------
-# À utiliser avec les options de chunk : fig.width = 14, fig.height = 7.5
-plots_secteurs = 
-  analyse %>% 
-  group_split(secteur) %>% 
-  map(~ scatter_fit(.x, as.character(.x$secteur[1]), xlim, ylim, axes_titres = FALSE))
-
-fig_secteurs = 
-  ggarrange(plotlist = plots_secteurs, ncol = 4, nrow = 2) %>% 
-  annotate_figure(bottom = text_grob(lab_x, size = 11),
-                  left   = text_grob(lab_y, size = 11, rot = 90))
-fig_secteurs
-
-# 5. Tableau récapitulatif : pente, R² et nombre de BV, ensemble et par secteur ----
-resume_pente = function(df) {
-  mod = lm(var_gauche ~ baisse_abs, data = df)
-  tibble(n_BV = nrow(df), pente = coef(mod)[[2]], r2 = summary(mod)$r.squared)
-}
-
-resume_secteurs = 
-  bind_rows(
-    resume_pente(analyse) %>% mutate(secteur = "Marseille (ensemble)", .before = 1),
-    analyse %>% group_by(secteur) %>% group_modify(~ resume_pente(.x)) %>% ungroup() %>% 
-      mutate(secteur = as.character(secteur))
-  ) %>% 
-  mutate(across(c(pente, r2), ~ round(.x, 2)))
-resume_secteurs
-```
 
 
