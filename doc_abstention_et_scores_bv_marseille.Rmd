@@ -20,7 +20,7 @@ library(paletteer)
 # xlsx (nécessite Java ; la lecture des xlsx se fait avec readxl), fixest, DescTools, rnaturalearth, 
 # ggpubr, units, scales, kableExtra, webshot, mapvotr (devtools::install_github("InseeFrLab/mapvotr"))
 ```
-**Dernière mise à jour** : 15 octobre 2026
+**Dernière mise à jour** : 19 novembre 2026
 
 **Auteur** : Valentin Guye
 
@@ -1033,7 +1033,7 @@ couche_part = function(part) {
   if(part=="gauche"){col_part = col_gd}
   couche_classes(
     id = paste0("part_", part), 
-    grp = paste0("Score ", de_famille[[part]], "chez les nouveaux votants ", periode_marg),
+    grp = paste0("Score ", de_famille[[part]], " chez les nouveaux votants ", periode_marg),
     valeurs = fin[[paste0("part_nouveaux_", sfx_marg(part))]],
     brk = brk_part, lab = lab_part, col = col_part,
     statut = fin[[paste0("statut_", sfx_marg(part))]],
