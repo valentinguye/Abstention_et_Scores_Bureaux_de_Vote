@@ -20,7 +20,7 @@ library(paletteer)
 # xlsx (nécessite Java ; la lecture des xlsx se fait avec readxl), fixest, DescTools, rnaturalearth, 
 # ggpubr, units, scales, kableExtra, webshot, mapvotr (devtools::install_github("InseeFrLab/mapvotr"))
 ```
-**Dernière mise à jour** : 19 novembre 2026
+**Dernière mise à jour** : 21 novembre 2026
 
 **Auteur** : Valentin Guye
 
@@ -28,7 +28,7 @@ library(paletteer)
 
 [Code source](https://github.com/valentinguye/Abstention_et_Scores_Bureaux_de_Vote/blob/master/doc_abstention_et_scores_bv_marseille.Rmd)
 
-**Utilisation de l'IA** : le code qui traite les données électorales et produit la carte a été amélioré avec le modèle Claude Sonnet 5.5 (effort moyen). 
+**Utilisation de l'IA** : le code qui traite les données électorales et produit la carte a été développé avec le modèle Claude Sonnet 5.5 (effort moyen, forfait gratuit). 
 
 **Objectif** : Connaître et voir le taux d'abstention par aire géographique des bureaux de vote (BV) à Marseille. 
 
@@ -100,7 +100,9 @@ rm(bv_reu, contours)
 
 ```
 
-# Méthode de répartition des voix exprimées par bord politique
+# Méthodes
+
+## Répartition des voix exprimées par bord politique
 
 Les pourcentages de voix exprimées sont attribués aux bords politiques en utilisant les nuances politiques des listes candidates telles qu'établies par la Circulaire INTA1931378J pour élections municipales et communautaires des 15 et 22 mars 2020. 
 
@@ -118,11 +120,6 @@ Pour la présidentielle de 2017 (même logique, car le fichier ne comporte pas n
 Les fichiers de l'élection présidentielle de 2022 ne comportent pas de nuance : les candidats sont attribués directement aux bords politiques. Le bord "Gauche" comprend Arthaud, Roussel, Mélenchon, Hidalgo, Jadot et Poutou ; le bord "Centre et divers" comprend Macron et Lassalle ; le bord "Droite" comprend Le Pen, Zemmour, Pécresse et Dupont-Aignan. 
 
 Pour les élections législatives de 2022 et 2024, les codes de nuance n'ont pas le préfixe "L" ; ils sont rattachés selon la même logique : le bord "Gauche" comprend EXG, DXG, FI, COM, SOC, RDG, DVG, VEC et les coalitions NUP (NUPES, 2022) et UG (Nouveau Front populaire, 2024) ; le bord "Centre et divers" comprend ENS, UDI, HOR, DVC, ECO, REG et DIV ; le bord "Droite" comprend LR, DVD, DXD, EXD, REC, RN et UXD. La nuance DSV (divers souverainistes) n'est rattachée à aucun bord. 
-
-Le score de LFI est isolé séparément : nuance LFI aux municipales de 2026, candidat Mélenchon aux présidentielles et, aux législatives, où les candidats LFI sont codés NUP ou UG comme leurs alliés, par le nom des candidats investis par LFI à Marseille (Bensaada, Bompard, Davi et Delogu en 2022 ; Bompard, Davi, Delogu et Popelard en 2024). Hendrik Davi, candidat LFI en 2022, se présente en dissident (nuance DVG) en 2024 : il est compté comme LFI aux deux scrutins pour suivre la même famille politique. Le score du RN comprend les nuances LRN (2020, 2026), LFN (2014, Front national), RN et UXD (législatives) et la candidate Le Pen aux présidentielles. 
-
-**Nouvelles voix et contribution potentielle.** Entre les T1 des législatives de 2022 et de 2024, l'abstention baisse dans tous les BV et les voix exprimées augmentent. En supposant que les électeurs de 2022 ont voté de la même façon en 2024, la part d'une famille politique parmi les voix exprimées supplémentaires ("nouvelles voix") se déduit des scores et des nombres de voix exprimées des deux scrutins. La contribution potentielle est le solde de voix (famille moins autres familles) qu'apporteraient les abstentionnistes restants s'ils votaient comme les nouveaux votants : c'est un scénario, pas une prévision. Elle n'est calculée que pour les BV où la famille avait des candidats aux deux scrutins et où les voix exprimées augmentent d'au moins 5 %. 
-
 
 
 ```{r resultats-bv, include = FALSE}
@@ -734,11 +731,110 @@ res_bv_mrs =
 ```
 
 
-## Lien entre abstention et vote de gauche
+## Lien entre abstention et vote de gauche : nouvelles voix et réservoirs de voix
 
-Les profils croisent le sens d'évolution de l'abstention et celui du score de la gauche entre deux scrutins (présidentielles 2017 et 2022, législatives 2022 et 2024). Ils sont déduits de variations agrégées par bureau de vote : ils ne disent pas si ce sont les mêmes électeurs qui se sont mobilisés ou abstenus. 
+Cette section décrit deux mesures calculées pour chaque bureau de vote (BV), entre un scrutin de référence $r$ et un scrutin plus récent $n$ (ici les T1 des législatives de 2022 et de 2024) : la **part d'une famille politique parmi les nouvelles voix**, puis les **réservoirs de voix** qui en découlent. Elles répondent à la question : *quand l'abstention recule, plus ou moins d'une nouvelle voix sur deux va-t-elle à telle famille, et où les abstentionnistes restants pèseraient-ils le plus ?* Après les explications mathématiques, des exemples sont donnés. Suivent les hypothèses nécessaires et les précautions à connaître pour interpréter ces mesures.   
+
+
+### Notations
+
+Pour un BV et un scrutin donnés :
+
+- $I$ : nombre d'inscrits ; $V$ : votants ; $E$ : suffrages exprimés ; $A = I - V$ : abstentionnistes ;
+- $s_f$ : part de la famille $f$ dans les suffrages exprimés (en fraction, entre 0 et 1) ; $v_f = s_f \, E$ : voix de la famille ;
+- $\Delta E = E_n - E_r$ : variation des suffrages exprimés entre les deux scrutins.
+
+Les familles sont la gauche, LFI et le RN (définitions dans la section précédente). Dans le code, les parts sont exprimées en pourcentage.
+
+#### 1. Part d'une famille parmi les nouvelles voix
+
+On appelle « nouvelles voix » les suffrages exprimés supplémentaires $\Delta E$. En supposant que les électeurs qui avaient voté au scrutin $r$ ont voté de la même façon au scrutin $n$ (hypothèse H1 ci-dessous), toute l'évolution des voix de la famille vient des nouvelles voix :
+
+$$ v_{f,n} \;=\; v_{f,r} + \pi_f \,\Delta E $$
+
+où $\pi_f$ est la part de la famille parmi les nouvelles voix. On en déduit :
+
+$$ \pi_f \;=\; \frac{v_{f,n} - v_{f,r}}{E_n - E_r} \;=\; \frac{s_{f,n}\,E_n - s_{f,r}\,E_r}{E_n - E_r} $$
+
+De façon équivalente, l'écart entre les nouveaux votants et l'électorat de référence est l'écart de score *amplifié* par le poids des nouveaux votants :
+
+$$ \pi_f - s_{f,r} \;=\; \frac{E_n}{\Delta E}\,\bigl(s_{f,n} - s_{f,r}\bigr) $$
+
+**Lecture.** Si $\pi_f > 50\,\%$, plus d'une nouvelle voix sur deux va à la famille ; si $\pi_f < 50\,\%$, moins d'une sur deux. Le seuil de 50 % est le seuil de neutralité entre la famille et l'ensemble des autres familles réunies (logique d'un duel de second tour). À un premier tour, un seuil plus bas peut être pertinent : le score d'une famille dans un BV progresse dès que $\pi_f$ dépasse son score actuel $s_{f,n}$, d'où des classes détaillées sous 50 % sur la carte.
+
+**Conditions de validité.** La mesure est calculée, puis représentée, seulement si :
+
+1. la famille a eu des candidats aux deux scrutins ($s_{f,r} > 0$ et $s_{f,n} > 0$) ; sinon le BV est classé « sans candidat » (c'est le cas de LFI dans les circonscriptions où l'investiture est revenue à un allié) ;
+2. les suffrages exprimés augmentent nettement : $\Delta E > 5\,\% \times E_r$ ; sinon la division par un $\Delta E$ proche de zéro rend $\pi_f$ instable (statut « non défini ») ;
+3. la part obtenue est plausible : $0 \le \pi_f \le 1$ ; sinon le BV est « hors bornes », ce qui signale que l'hypothèse H1 ne tient pas dans ce BV.
+
+Les BV qui ne remplissent pas ces conditions sont affichés en gris (« non interprétable »). Sur les données actuelles, 443 BV sur 480 sont interprétables pour la gauche.
+
+#### 2. Réservoirs de voix
+
+Les **abstentionnistes restants** du scrutin $n$ sont $A_n = I_n - V_n$. Si tous votaient, ils apporteraient, avec le même taux de suffrages exprimés que les votants du scrutin $n$, 
+
+$$ \hat{E} \;=\; A_n \times \frac{E_n}{V_n} $$
+
+suffrages exprimés. Le scénario suppose qu'ils se répartissent entre les familles comme les nouveaux votants (hypothèse H4). On en tire deux réservoirs pour la famille $f$ :
+
+$$ R^{\text{brut}}_f \;=\; \pi_f \,\hat{E} \qquad\qquad R^{\text{net}}_f \;=\; \pi_f\,\hat{E} - (1-\pi_f)\,\hat{E} \;=\; (2\pi_f - 1)\,\hat{E} $$
+
+- le **réservoir brut** est le nombre de voix supplémentaires de la famille ;
+- le **réservoir net** est le solde de voix entre la famille et l'ensemble des autres familles réunies. Il est positif si $\pi_f > 50\,\%$, négatif sinon, et proportionnel au nombre d'abstentionnistes restants : il combine donc la part *et* le volume. C'est cette mesure qui est cartographiée pour la gauche.
+
+Pour l'ensemble de la ville, on somme les réservoirs des BV interprétables :
+
+$$ R^{\text{net}}_{f,\;\text{ville}} \;=\; \sum_{b\,\in\,\text{BV interprétables}} R^{\text{net}}_{f,b} $$
+
+### Exemple : deux BV fictifs
+
+Deux BV de 1 000 inscrits, où l'abstention recule de 20 points (de 60 % à 40 %). Pour simplifier, on suppose que tous les votants expriment un suffrage ($E = V$). Le score de la gauche progresse de 5 points dans le BV A et d'un seul point dans le BV B.
+
+| | BV A | BV B |
+|---|---:|---:|
+| Abstention 2022 → 2024 | 60 % → 40 % | 60 % → 40 % |
+| Exprimés $E_r \to E_n$ | 400 → 600 | 400 → 600 |
+| Nouvelles voix exprimées $\Delta E$ | 200 | 200 |
+| Part de la gauche $s_r \to s_n$ | 40 % → 45 % | 40 % → 41 % |
+| Voix de la gauche $v_r \to v_n$ | 160 → 270 | 160 → 246 |
+| Voix de gauche supplémentaires | 110 | 86 |
+| **Part de la gauche dans les nouvelles voix $\pi$** | **55 %** | **43 %** |
+| Écart à l'électorat de 2022 $\pi - s_r$ | +15 pts | +3 pts |
+| Abstentionnistes restants $A_n$ | 400 | 400 |
+| **Réservoir brut** $R^{\text{brut}}$ | **220 voix** | **172 voix** |
+| **Réservoir net** $R^{\text{net}}$ | **+40 voix** | **−56 voix** |
+
+À recul d'abstention égal, une nouvelle voix sur deux va à la gauche en A (55 %) mais seulement 43 % en B, alors que son score ne diffère que de 4 points entre les deux BV. Si les abstentionnistes restants se comportaient comme les nouveaux votants, mobiliser A rapporterait 40 voix nettes à la gauche, et B lui en ferait *perdre* 56 face aux autres familles réunies. Le volume compte autant que la part : un BV C, identique à A mais avec 3 000 inscrits, aurait un réservoir net de +120 voix, et un BV proche de 50 % avec très peu d'abstentionnistes restants aurait un réservoir net proche de zéro.
+
+### Hypothèses nécessaires
+
+Les deux mesures n'ont de sens que sous les hypothèses suivantes :
+
+- **H1. Stabilité des anciens votants.** Les électeurs qui avaient voté au scrutin $r$ votent au scrutin $n$ exactement comme avant : ni conversion d'un camp à l'autre, ni passage à l'abstention. Toute l'évolution est alors portée par les nouvelles voix.
+- **H2. Même électorat et même périmètre.** Les BV ont le même périmètre et une population comparable entre les deux scrutins. Les BV créés ou redécoupés (497 BV en 2026 contre 480 en 2020) et les arrivées et départs d'inscrits faussent la comparaison : les « nouvelles voix » mélangent alors mobilisation et renouvellement de l'électorat.
+- **H3. Famille identifiable et stable.** La famille correspond à la même offre politique aux deux scrutins. Les définitions retenues (nuances regroupées par bord, LFI repérée par les noms des candidats, RN et UXD) peuvent changer le résultat. Les cas où l'offre change (investiture d'un allié, dissidence) sont écartés ou à lire avec prudence.
+- **H4. Composition des abstentionnistes restants (réservoirs).** Les abstentionnistes restants se répartissent entre les familles comme les nouveaux votants du même BV. Rien ne garantit que les derniers abstentionnistes ressemblent aux premiers mobilisés.
+- **H5. Mobilisation complète et proportionnelle (réservoirs).** Le scénario fait voter tous les abstentionnistes restants, avec une composition constante : c'est un cas limite, pas un objectif réaliste. Un réservoir réaliste en serait une fraction.
+
+### Limites et précautions d'interprétation
+
+- **Inférence écologique.** Ces mesures sont calculées à partir de totaux par BV : elles décrivent des évolutions nettes de voix, pas le comportement des individus (erreur écologique, Robinson 1950). Elles ne distinguent pas la mobilisation de nouveaux électeurs, la conversion d'anciens électeurs et la démobilisation, qui peuvent se compenser. Seule une méthode d'inférence écologique (régression de Goodman, 1953 ; King, 1997), qui estime des transferts de voix entre scrutins en incluant l'abstention comme catégorie, ou des données individuelles, permettrait de les séparer. Ici, $\pi_f$ est une identité comptable sous H1 : elle n'est pas estimée et ne comporte pas d'intervalle de confiance.
+- **Un « hors bornes » est un symptôme.** Une part inférieure à 0 ou supérieure à 100 % montre que H1 ne tient pas dans ce BV. Dans les BV interprétables, H1 peut aussi être violée sans que la part sorte de [0 ; 100 %] : l'intervalle n'est qu'un garde-fou.
+- **Les parts sont des évolutions nettes.** Les parts de plusieurs familles parmi les nouvelles voix peuvent dépasser 100 % au total, quand d'autres familles perdent des voix.
+- **Extrapolation d'un scrutin à l'autre.** Les nouveaux votants de 2024 ont été mobilisés par un contexte particulier (législatives anticipées). Les abstentionnistes de la présidentielle de 2027 n'ont pas nécessairement le même profil, et l'enjeu, l'offre de candidats et le mode de scrutin diffèrent. Les réservoirs mesurent un potentiel relatif entre BV, pas une prévision de résultat.
+- **Seuil de 50 %.** Le réservoir net compare la famille à *tous* les autres réunis : il convient à un duel, pas à un premier tour à plusieurs candidats, où le bon repère dépend des concurrents.
+- **Effet de taille.** Un réservoir en voix croît avec le nombre d'inscrits : à part égale, un grand BV pèse plus qu'un petit. À lire avec le nombre d'abstentionnistes restants.
+- **Sélection des BV.** Les sommes ne portent que sur les BV interprétables, c'est-à-dire ceux où les hypothèses sont plausibles. Les périmètres diffèrent selon les familles (LFI n'a des candidats aux deux scrutins que dans trois circonscriptions) : les réservoirs de la gauche et de LFI ne sont ni additifs ni directement comparables.
+- **Suffrages exprimés.** Les parts sont rapportées aux exprimés, pas aux inscrits : une famille peut gagner en part sans gagner en voix. Les blancs et nuls des futurs votants sont supposés au même taux que ceux du scrutin $n$.
+
+
+
 
 ```{r variables-derivees, include = FALSE}
+# **Profils** Les profils croisent le sens d'évolution de l'abstention et celui du score de la gauche entre deux scrutins (présidentielles 2017 et 2022, législatives 2022 et 2024). Ils sont déduits de variations agrégées par bureau de vote : ils ne disent pas si ce sont les mêmes électeurs qui se sont mobilisés ou abstenus. 
+
+
 # ==============================================================================
 # VARIABLES DÉRIVÉES : évolutions de l'abstention et du vote de gauche, et profils
 # Convention : évolution = valeur du scrutin le plus récent - valeur du scrutin le plus ancien, en points 
@@ -782,7 +878,7 @@ res_bv_mrs =
   )
 ```
 
-# Methode pour joindre les contours et les résultats des élections par bureau de vote
+## Jointure des contours des bureaux de vote et des résultats aux élections
 
 En restreignant à Marseille, il y a `r length(unique(cles_ref))` bureaux de vote uniques aux municipales de 2020. 
 
@@ -850,7 +946,6 @@ Pour `r nrow(fin)` BVs on a une correspondance fiable entre les données de rés
 
 On a utilisé la "Table de correspondance expérimentale et ponctuelle des référentiels de bureaux
 de vote" proposée par l'Insee et l'Etalab et la documentation associée (dictionnaire-donnees-bv.pdf et methodology.pdf Annexe B. à ce lien : https://www.data.gouv.fr/datasets/bureaux-de-vote-et-adresses-de-leurs-electeurs/) afin vérifier la crédibilité de la correspondance entre les identifiants dans les deux bases à apairer. 
-
 
 
 
@@ -1033,7 +1128,7 @@ couche_part = function(part) {
   if(part=="gauche"){col_part = col_gd}
   couche_classes(
     id = paste0("part_", part), 
-    grp = paste0("Score ", de_famille[[part]], " chez les nouveaux votants ", periode_marg),
+    grp = paste0("Nouvelles voix ", periode_marg, " : % ", pour_famille[[part]]),
     valeurs = fin[[paste0("part_nouveaux_", sfx_marg(part))]],
     brk = brk_part, lab = lab_part, col = col_part,
     statut = fin[[paste0("statut_", sfx_marg(part))]],
@@ -1173,6 +1268,16 @@ m <- m %>%
 # (exécuté dans le navigateur, sans serveur) n'affiche que la légende de la couche active.
 legendes = setNames(css_couches, grp_couches)   # classe CSS de la légende de chaque couche
 
+m <- m %>% 
+  addControl(
+    html = paste0('<a href="https://valentinguye.github.io/Abstention_et_Scores_Bureaux_de_Vote/',
+                  'doc_abstention_et_scores_bv_marseille.html" target="_blank" rel="noopener">',
+                  'Méthode et sources</a>'),
+    position = "topright",
+    className = "info legend lien-methode"
+  )
+
+
 js_legendes = sprintf("
 function(el, x) {
   var map = this;
@@ -1244,6 +1349,8 @@ css_page <- htmltools::tags$style(htmltools::HTML("
     .leaflet-bottom .info.legend { font-size: 15px; max-width: 75vw; }
     .leaflet-control-layers-expanded, .leaflet-control-layers-list label { font-size: 15px; }
   }
+  
+  .lien-methode { font-size: 13px; padding: 4px 8px; }
 "))
 
 m_titled <- htmlwidgets::prependContent(
@@ -1258,5 +1365,68 @@ m
 saveWidget(m_titled, file = here("index.html"), selfcontained = TRUE)
 ```
 
+
+# Valeurs agrégées pour l'ensemble de Marseille
+
+Le tableau donne, pour chaque couche de la carte, la valeur correspondante pour l'ensemble de la ville. Les taux d'abstention sont ceux de la ville (abstentionnistes rapportés aux inscrits, sur tous les bureaux de vote de chaque scrutin), et non la moyenne des taux des bureaux de vote. La part d'une famille parmi les nouvelles voix compare l'évolution de ses voix à celle des voix exprimées : les parts de plusieurs familles peuvent dépasser 100 % au total quand d'autres familles perdent des voix. 
+
+```{r tableau-marseille}
+# Les mesures de nouvelles voix et de contribution potentielle sont agrégées sur les bureaux de vote de la table : leurs périmètres diffèrent selon les familles (LFI n'avait des candidats aux deux scrutins que dans trois circonscriptions), leurs valeurs ne sont donc ni additives ni directement comparables. 
+# ==============================================================================
+# TABLEAU : valeurs des couches agrégées pour l'ensemble de Marseille
+# ==============================================================================
+# Abstention de la ville = abstentionnistes / inscrits, sur tous les BV du scrutin (et non moyenne des taux de BV)
+abs_ville = function(s) {
+  d = resultats[[s]]
+  100 * (1 - sum(d[[paste0("votants_", s)]]) / sum(d[[paste0("inscrits_", s)]]))
+}
+fmt_pc  = function(x) sprintf("%.1f %%", x)
+fmt_pts = function(x) sprintf("%+.1f pt", x)   # variation en points, avec son signe
+
+# Nombre de BV de chaque profil (couches 7 et 8)
+fmt_profil = function(profil) {
+  n = table(profil)
+  detail = paste0(sub(" \\(.*$", "", names(n)), " : ", n, collapse = " ; ")
+  paste(detail, "BV")
+}
+
+# Nouvelles voix : part d'une famille parmi les voix exprimées supplémentaires entre les deux scrutins du couple 
+# `couple_marg`, agrégée sur les BV où elle avait des candidats aux deux scrutins (couches 9 à 11)
+part_nouvelles_ville = function(part) {
+  n = couple_marg[["nouveau"]]; r = couple_marg[["reference"]]
+  d = res_bv_mrs %>% filter(.data[[paste0("statut_", sfx_marg(part))]] != "sans candidat")
+  voix = function(s) d[[paste0("total_", part, "_", s)]] * d[[paste0("exprimes_", s)]] / 100
+  nouvelles_voix = sum(voix(n)) - sum(voix(r))
+  nouveaux_exprimes = sum(d[[paste0("exprimes_", n)]]) - sum(d[[paste0("exprimes_", r)]])
+  list(valeur = fmt_pc(100 * nouvelles_voix / nouveaux_exprimes), perimetre = paste(nrow(d), "BV avec candidats aux deux scrutins"))
+}
+
+# Contribution potentielle : somme des soldes nets de voix des BV interprétables (couches 12 et 13)
+solde_ville = function(part) {
+  s = res_bv_mrs[[paste0("solde_net_voix_", sfx_marg(part))]]
+  list(valeur = paste(formatC(sum(s, na.rm = TRUE), format = "f", digits = 0, big.mark = " ", flag = "+"), "voix"),
+       perimetre = paste(sum(!is.na(s)), "BV interprétables"))
+}
+
+tous_bv = "tous les BV de chaque scrutin"
+tab_ville = tribble(
+  ~Mesure, ~Marseille, ~Périmètre,
+  paste("Abstention,", lib("mun1_2026")),   fmt_pc(abs_ville("mun1_2026")),  tous_bv,
+  paste("Abstention,", lib("pres1_2022")),  fmt_pc(abs_ville("pres1_2022")), tous_bv,
+  #  "Évolution de l'abstention 2014 → 2026 (T1 municipales)", fmt_pts(abs_ville("mun1_2026") - abs_ville("mun1_2014")),  tous_bv,
+  "Évolution de l'abstention 2020 → 2026 (T1 municipales)", fmt_pts(abs_ville("mun1_2026") - abs_ville("mun1_2020")),  tous_bv,
+  "Évolution de l'abstention 2017 → 2022 (T1 présidentielles)", fmt_pts(abs_ville("pres1_2022") - abs_ville("pres1_2017")), tous_bv,
+  "Évolution de l'abstention 2022 → 2024 (T1 législatives)", fmt_pts(abs_ville("leg1_2024") - abs_ville("leg1_2022")), tous_bv,
+  # "Profils, présidentielles 2017 → 2022 (nombre de BV)", fmt_profil(res_bv_mrs$profil_1722), paste(nrow(res_bv_mrs), "BV de la table"),
+  # "Profils, législatives 2022 → 2024 (nombre de BV)",    fmt_profil(res_bv_mrs$profil_2224), paste(nrow(res_bv_mrs), "BV de la table"),
+  "Part de la gauche parmi les nouvelles voix (législatives 2022 → 2024)", part_nouvelles_ville("gauche")$valeur, part_nouvelles_ville("gauche")$perimetre,
+  #   "Part de LFI parmi les nouvelles voix (législatives 2022 → 2024)",       part_nouvelles_ville("lfi")$valeur,    part_nouvelles_ville("lfi")$perimetre,
+  "Part du RN parmi les nouvelles voix (législatives 2022 → 2024)",        part_nouvelles_ville("rn")$valeur,     part_nouvelles_ville("rn")$perimetre,
+  "Contribution potentielle de la gauche : solde net de voix",             solde_ville("gauche")$valeur,          solde_ville("gauche")$perimetre
+  #   "Contribution potentielle de LFI : solde net de voix",                   solde_ville("lfi")$valeur,             solde_ville("lfi")$perimetre
+)
+
+knitr::kable(tab_ville, align = "llrl")
+```
 
 
